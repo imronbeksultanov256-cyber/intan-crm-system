@@ -1,4 +1,4 @@
-const API_BASE = 'https://intan-backend.onrender.com';
+const API_BASE = 'https://intan-backend.onrender.com/api';
 
 const api = {
   getToken() {
