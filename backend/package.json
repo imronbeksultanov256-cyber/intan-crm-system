@@ -1,0 +1,33 @@
+{
+  "name": "intan-clinic-backend",
+  "version": "1.0.0",
+  "description": "Intan Dental Clinic Management System — Backend",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "nodemon src/server.js",
+    "db:migrate": "node src/utils/migrate.js",
+    "db:seed": "node src/utils/seed.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "pg": "^8.11.3",
+    "bcryptjs": "^2.4.3",
+    "jsonwebtoken": "^9.0.2",
+    "multer": "^1.4.5-lts.1",
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "helmet": "^7.1.0",
+    "express-rate-limit": "^7.1.5",
+    "joi": "^17.11.0",
+    "winston": "^3.11.0",
+    "node-cron": "^3.0.3",
+    "axios": "^1.6.2",
+    "exceljs": "^4.4.0",
+    "pdfkit": "^0.14.0",
+    "uuid": "^9.0.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2"
+  }
+}

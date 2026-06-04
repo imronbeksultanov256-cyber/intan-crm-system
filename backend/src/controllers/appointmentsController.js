@@ -1,0 +1,196 @@
+const { query } = require('../utils/db');
+
+// ── GET /api/appointments ─────────────────────────────────
+exports.list = async (req, res) => {
+  const {
+    date, doctorId, status, page = 1, limit = 50
+  } = req.query;
+
+  const offset = (page - 1) * parseInt(limit);
+  const conditions = [];
+  const params = [];
+  let pi = 1;
+
+  // Doctors can only see their own appointments
+  if (req.filterDoctorId) {
+    conditions.push(`a.doctor_id = $${pi++}`);
+    params.push(req.filterDoctorId);
+  } else if (doctorId) {
+    conditions.push(`a.doctor_id = $${pi++}`);
+    params.push(doctorId);
+  }
+
+  if (date) {
+    conditions.push(`a.appointment_dt::date = $${pi++}`);
+    params.push(date);
+  }
+
+  if (status) {
+    conditions.push(`a.status = $${pi++}`);
+    params.push(status);
+  }
+
+  const where = conditions.length ? 'WHERE ' + conditions.join(' AND ') : '';
+
+  try {
+    const result = await query(
+      `SELECT
+         a.*,
+         p.first_name || ' ' || p.last_name AS patient_name,
+         p.phone AS patient_phone,
+         u.first_name || ' ' || u.last_name AS doctor_name,
+         doc.specialization,
+         s.name AS service_name, s.price AS service_price
+       FROM appointments a
+       JOIN patients p ON p.id = a.patient_id
+       JOIN doctors doc ON doc.id = a.doctor_id
+       JOIN users u ON u.id = doc.user_id
+       LEFT JOIN services s ON s.id = a.service_id
+       ${where}
+       ORDER BY a.appointment_dt ASC
+       LIMIT $${pi++} OFFSET $${pi}`,
+      [...params, parseInt(limit), offset]
+    );
+
+    res.json(result.rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Ошибка при получении записей' });
+  }
+};
+
+// ── POST /api/appointments ────────────────────────────────
+exports.create = async (req, res) => {
+  const {
+    patient_id, doctor_id, service_id,
+    appointment_dt, duration_min, comment, source
+  } = req.body;
+
+  if (!patient_id || !doctor_id || !appointment_dt) {
+    return res.status(400).json({ error: 'Пациент, врач и дата записи обязательны' });
+  }
+
+  try {
+    // Check slot is free
+    const conflict = await query(
+      `SELECT id FROM appointments
+       WHERE doctor_id = $1
+         AND status NOT IN ('cancelled','no_show')
+         AND appointment_dt < ($2::timestamp + ($3 || ' minutes')::interval)
+         AND (appointment_dt + (COALESCE(duration_min,60) || ' minutes')::interval) > $2::timestamp`,
+      [doctor_id, appointment_dt, duration_min || 60]
+    );
+
+    if (conflict.rows.length > 0) {
+      return res.status(409).json({ error: 'Это время уже занято у данного врача' });
+    }
+
+    const result = await query(
+      `INSERT INTO appointments
+         (patient_id, doctor_id, service_id, appointment_dt,
+          duration_min, comment, source, created_by, status)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'pending')
+       RETURNING *`,
+      [patient_id, doctor_id, service_id || null,
+       appointment_dt, duration_min || 60,
+       comment || null, source || 'admin', req.user.id]
+    );
+
+    await query(
+      `INSERT INTO activity_log (user_id, action, entity_type, entity_id)
+       VALUES ($1,'CREATE_APPOINTMENT','appointment',$2)`,
+      [req.user.id, result.rows[0].id]
+    );
+
+    res.status(201).json(result.rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Ошибка при создании записи' });
+  }
+};
+
+// ── PATCH /api/appointments/:id/status ───────────────────
+exports.updateStatus = async (req, res) => {
+  const { id } = req.params;
+  const { status } = req.body;
+
+  const allowed = ['pending','confirmed','in_progress','completed','cancelled','no_show'];
+  if (!allowed.includes(status)) {
+    return res.status(400).json({ error: 'Недопустимый статус' });
+  }
+
+  try {
+    const result = await query(
+      `UPDATE appointments
+       SET status = $1,
+           confirmed_by = CASE WHEN $1 = 'confirmed' THEN $2 ELSE confirmed_by END,
+           updated_at = NOW()
+       WHERE id = $3 RETURNING *`,
+      [status, req.user.id, id]
+    );
+
+    if (!result.rows[0]) return res.status(404).json({ error: 'Запись не найдена' });
+    res.json(result.rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: 'Ошибка при обновлении статуса' });
+  }
+};
+
+// ── GET /api/appointments/slots ───────────────────────────
+// Returns free 30-min slots for a doctor on a given date
+exports.availableSlots = async (req, res) => {
+  const { doctorId, date } = req.query;
+  if (!doctorId || !date) {
+    return res.status(400).json({ error: 'doctorId и date обязательны' });
+  }
+
+  try {
+    const schedule = await query(
+      `SELECT start_time, end_time
+       FROM doctor_schedule
+       WHERE doctor_id = $1
+         AND day_of_week = EXTRACT(ISODOW FROM $2::date)
+         AND is_working = TRUE`,
+      [doctorId, date]
+    );
+
+    if (!schedule.rows[0]) return res.json({ slots: [] });
+
+    const { start_time, end_time } = schedule.rows[0];
+    const booked = await query(
+      `SELECT appointment_dt, duration_min FROM appointments
+       WHERE doctor_id = $1
+         AND appointment_dt::date = $2
+         AND status NOT IN ('cancelled','no_show')`,
+      [doctorId, date]
+    );
+
+    // Generate 30-min slots
+    const slots = [];
+    const [sh, sm] = start_time.split(':').map(Number);
+    const [eh, em] = end_time.split(':').map(Number);
+    let cur = sh * 60 + sm;
+    const endMin = eh * 60 + em;
+
+    while (cur + 30 <= endMin) {
+      const h = String(Math.floor(cur / 60)).padStart(2, '0');
+      const m = String(cur % 60).padStart(2, '0');
+      const slotDt = new Date(`${date}T${h}:${m}:00`);
+
+      const isBusy = booked.rows.some(b => {
+        const bStart = new Date(b.appointment_dt);
+        const bEnd = new Date(bStart.getTime() + (b.duration_min || 60) * 60000);
+        const sEnd = new Date(slotDt.getTime() + 30 * 60000);
+        return slotDt < bEnd && sEnd > bStart;
+      });
+
+      if (!isBusy) slots.push(`${h}:${m}`);
+      cur += 30;
+    }
+
+    res.json({ slots });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Ошибка при получении слотов' });
+  }
+};

@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="ru" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Интан CMS — Панель управления</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🦷</text></svg>" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght=300;400;500;600;700&family=JetBrains+Mono:wght=400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/admin.css" />
+</head>
+<body>
+
+<div class="auth-screen" id="authScreen">
+  <div class="auth-bg">
+    <div class="auth-orb auth-orb--1"></div>
+    <div class="auth-orb auth-orb--2"></div>
+  </div>
+  <div class="auth-card">
+    <div class="auth-logo">
+      <span class="auth-logo__icon">🦷</span>
+      <div>
+        <span class="auth-logo__name">Интан</span>
+        <span class="auth-logo__sub">Система управления клиникой</span>
+      </div>
+    </div>
+    <h2 class="auth-title">Вход в систему</h2>
+    <form id="loginForm" class="auth-form">
+      <div class="form-group">
+        <label class="form-label">Email</label>
+        <input type="email" id="loginEmail" class="form-input" placeholder="doctor@intan.kg" autocomplete="username" required />
+      </div>
+      <div class="form-group">
+        <label class="form-label">Пароль</label>
+        <div class="input-eye-wrap">
+          <input type="password" id="loginPassword" class="form-input" placeholder="••••••••" autocomplete="current-password" required />
+          <button type="button" class="eye-btn" id="eyeBtn">👁</button>
+        </div>
+      </div>
+      <div class="auth-error" id="authError"></div>
+      <button type="submit" class="btn-primary btn-block" id="loginBtn">
+        <span id="loginBtnText">Войти</span>
+        <span id="loginSpinner" class="spinner" hidden></span>
+      </button>
+    </form>
+    <p class="auth-demo">
+      <strong>Demo:</strong> chief@intan.kg / doctor@intan.kg / admin@intan.kg<br/>
+      <em>Пароль: demo123</em>
+    </p>
+  </div>
+</div>
+
+<div class="app" id="app" hidden>
+
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar__header">
+      <a href="#" class="sidebar__logo" data-page="dashboard">
+        <span class="sidebar__logo-icon">🦷</span>
+        <span class="sidebar__logo-text">Интан</span>
+      </a>
+      <button class="sidebar__collapse" id="sidebarCollapse" aria-label="Свернуть меню">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg>
+      </button>
+    </div>
+
+    <nav class="sidebar__nav">
+      <div class="nav-section">
+        <span class="nav-section__label">Главная</span>
+        <a class="nav-link active" data-page="dashboard">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+          <span>Дашборд</span>
+        </a>
+      </div>
+
+      <div class="nav-section">
+        <span class="nav-section__label">Клиника</span>
+        <a class="nav-link" data-page="appointments">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+          <span>Записи</span>
+          <span class="nav-badge" id="pendingBadge">0</span>
+        </a>
+        <a class="nav-link" data-page="patients">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg>
+          <span>Пациенты</span>
+        </a>
+        <a class="nav-link" data-page="doctors">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2C8.13 2 5 5.13 5 9c0 3.87 2.48 7.17 6 8.59V22h2v-4.41c3.52-1.42 6-4.72 6-8.59 0-3.87-3.13-7-7-7z"/></svg>
+          <span>Врачи</span>
+        </a>
+      </div>
+
+      <div class="nav-section" id="navFinance">
+        <span class="nav-section__label">Управление</span>
+        <a class="nav-link" data-page="services">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>
+          <span>Прайс-лист</span>
+        </a>
+        <a class="nav-link nav-link--chief" data-page="finance">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>
+          <span>Финансы</span>
+        </a>
+        <a class="nav-link nav-link--chief" data-page="users">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+          <span>Сотрудники</span>
+        </a>
+        <a class="nav-link nav-link--chief" data-page="logs">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+          <span>Журнал</span>
+        </a>
+      </div>
+    </nav>
+
+    <div class="sidebar__footer">
+      <div class="user-card">
+        <div class="user-card__avatar" id="sidebarAvatar">ГВ</div>
+        <div class="user-card__info">
+          <span class="user-card__name" id="sidebarName">Загрузка...</span>
+          <span class="user-card__role" id="sidebarRole"></span>
+        </div>
+      </div>
+      <button class="sidebar__logout" id="logoutBtn" aria-label="Выйти">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+      </button>
+    </div>
+  </aside>
+
+  <main class="main" id="main">
+    <header class="topbar">
+      <button class="topbar__burger" id="mobileBurger" aria-label="Меню">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+      </button>
+      <div class="topbar__title" id="pageTitle">Дашборд</div>
+      <div class="topbar__actions">
+        <button class="topbar__btn" id="themeBtn" aria-label="Тема">
+          <span id="themeIcon">🌙</span>
+        </button>
+        <button class="topbar__btn topbar__notif" id="notifBtn" aria-label="Уведомления">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>
+          <span class="notif-dot" id="notifDot" hidden></span>
+        </button>
+      </div>
+    </header>
+
+    <div class="page-container">
+      <div id="page-dashboard" class="page active"></div>
+      <div id="page-appointments" class="page"></div>
+      <div id="page-patients" class="page"></div>
+      <div id="page-patient-detail" class="page"></div>
+      <div id="page-doctors" class="page"></div>
+      <div id="page-services" class="page"></div>
+      <div id="page-finance" class="page"></div>
+      <div id="page-users" class="page"></div>
+      <div id="page-logs" class="page"></div>
+    </div>
+  </main>
+</div>
+
+<div class="modal-overlay" id="modalOverlay" hidden>
+  <div class="modal" id="modal">
+    <div class="modal__header">
+      <h3 class="modal__title" id="modalTitle"></h3>
+      <button class="modal__close" id="modalClose">✕</button>
+    </div>
+    <div class="modal__body" id="modalBody"></div>
+  </div>
+</div>
+
+<div class="toast-container" id="toastContainer"></div>
+
+<script src="js/api.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/pages/dashboard.js"></script>
+<script src="js/pages/appointments.js"></script>
+<script src="js/pages/patients.js"></script>
+<script src="js/pages/services.js"></script>
+<script src="js/pages/finance.js"></script>
+<script src="js/admin.js"></script>
+</body>
+</html>
