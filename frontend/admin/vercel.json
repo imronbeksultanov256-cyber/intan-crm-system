@@ -1,15 +1,24 @@
 {
   "version": 2,
-  "cleanUrls": true,
-  "headers": [
+  "public": true,
+  "builds": [
     {
-      "source": "/(.*)",
-      "headers": [
-        {
-          "key": "Cache-Control",
-          "value": "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0"
-        }
-      ]
+      "src": "frontend/admin/**/*",
+      "use": "@vercel/static"
+    }
+  ],
+  "routes": [
+    {
+      "src": "/js/(.*)",
+      "dest": "frontend/admin/js/$1"
+    },
+    {
+      "src": "/css/(.*)",
+      "dest": "frontend/admin/css/$1"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "frontend/admin/$1"
     }
   ]
 }
