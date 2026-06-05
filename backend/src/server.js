@@ -14,24 +14,23 @@ if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
 
 app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
 
-// ── ОБНОВЛЕННЫЙ CORS ────────────────────────────────────────────────────────
+// ── ОБНОВЛЕННЫЙ CORS (УНИВЕРСАЛЬНАЯ ПРОВЕРКА) ───────────────────────────────
 const allowedOrigins = [
-  // Локальная разработка
   'http://localhost:3001',
   'http://localhost:5500',
   'http://127.0.0.1:5500',
   'http://localhost:3000',
-  // Vercel — все ваши домены
-  'https://intan-crm-system-5czfz4u29-imronbek-s-projects.vercel.app',
-  'https://intan-crm-system.vercel.app',
-  'https://intan-crm-system-g6e9.vercel.app'
+  'https://intan-crm-system-g6e9.vercel.app',
+  'https://intan-crm-system.vercel.app'
 ];
 
 app.use(cors({
   origin: function(origin, callback) {
+    // 1. Разрешаем запросы без origin (например, инструменты тестирования)
     if (!origin) return callback(null, true);
     
-    if (allowedOrigins.includes(origin)) {
+    // 2. Разрешаем, если домен есть в списке ИЛИ если это любой поддомен vercel.app
+    if (allowedOrigins.includes(origin) || origin.endsWith('.vercel.app')) {
       callback(null, true);
     } else {
       console.warn('CORS заблокировал origin:', origin);
@@ -42,6 +41,10 @@ app.use(cors({
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
 }));
+
+// Явно обрабатываем предварительные (preflight) OPTIONS запросы
+app.options('*', cors());
+// ────────────────────────────────────────────────────────────────────────────
 
 // Явно обрабатываем предварительные (preflight) OPTIONS запросы
 app.options('*', cors());
