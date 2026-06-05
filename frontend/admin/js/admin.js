@@ -14,7 +14,7 @@ const App = {
           return;
         }
       } catch (err) {
-        console.info('Сессия не найдена, требуется вход:', err.message);
+        console.info('Нет сессии:', err.message);
         App.clearAuthData();
       }
     }
@@ -24,77 +24,56 @@ const App = {
   showAuth() {
     const authScreen = document.getElementById('authScreen');
     const appEl      = document.getElementById('app');
-
-    if (authScreen) {
-      authScreen.hidden       = false;
-      authScreen.style.display = 'flex';
-    }
-    if (appEl) {
-      appEl.hidden       = true;
-      appEl.style.display = 'none';
-    }
+    if (authScreen) { authScreen.hidden = false; authScreen.style.display = 'flex'; }
+    if (appEl)      { appEl.hidden = true;        appEl.style.display = 'none'; }
   },
 
   showApp() {
     const authScreen = document.getElementById('authScreen');
     const appEl      = document.getElementById('app');
-
-    if (authScreen) {
-      authScreen.hidden       = true;
-      authScreen.style.display = 'none';
-    }
-    if (appEl) {
-      appEl.hidden       = false;
-      appEl.style.display = 'flex';
-    }
-
+    if (authScreen) { authScreen.hidden = true;  authScreen.style.display = 'none'; }
+    if (appEl)      { appEl.hidden = false;       appEl.style.display = 'flex'; }
     App.applyRole();
     App.updateSidebar();
-
-    if (typeof window.navigate === 'function') {
-      window.navigate('dashboard');
-    }
+    if (typeof window.navigate === 'function') window.navigate('dashboard');
   },
 
   applyRole() {
-    const roleObj = App.user?.role;
-    const roleName = typeof roleObj === 'object' && roleObj !== null ? roleObj.name : roleObj;
-    
+    const u = App.user;
+    if (!u) return;
+    // Роль может прийти как строка "chief_doctor" или объект {name: "chief_doctor"}
+    const role = typeof u.role === 'object' && u.role !== null
+      ? u.role.name
+      : u.role;
     const appEl = document.getElementById('app');
     if (!appEl) return;
-
     appEl.classList.remove('role-chief', 'role-doctor', 'role-admin');
-    if      (roleName === 'chief_doctor') appEl.classList.add('role-chief');
-    else if (roleName === 'doctor')       appEl.classList.add('role-doctor');
-    else if (roleName === 'admin')        appEl.classList.add('role-admin');
+    if      (role === 'chief_doctor') appEl.classList.add('role-chief');
+    else if (role === 'doctor')       appEl.classList.add('role-doctor');
+    else if (role === 'admin')        appEl.classList.add('role-admin');
   },
 
   updateSidebar() {
     const u = App.user;
     if (!u) return;
-
-    const name = `${u.last_name || ''} ${u.first_name || ''}`.trim() || u.email;
-    const roleName = typeof u.role === 'object' && u.role !== null ? u.role.name : u.role;
-
+    const name = `${u.last_name || ''} ${u.first_name || ''}`.trim() || u.email || 'Пользователь';
+    const role = typeof u.role === 'object' && u.role !== null ? u.role.name : u.role;
     const roleLabels = {
       chief_doctor: 'Главный врач',
       doctor:       'Врач',
       admin:        'Администратор',
     };
-
     const nameEl   = document.getElementById('sidebarName');
     const roleEl   = document.getElementById('sidebarRole');
     const avatarEl = document.getElementById('sidebarAvatar');
-
     if (nameEl)   nameEl.textContent   = name;
-    if (roleEl)   roleEl.textContent   = roleLabels[roleName] || roleName || 'Сотрудник';
-    
+    if (roleEl)   roleEl.textContent   = roleLabels[role] || role || '';
     if (avatarEl) {
-      if (typeof UI !== 'undefined' && typeof UI.initials === 'function') {
-        avatarEl.textContent = UI.initials(name);
-      } else {
-        avatarEl.textContent = ((u.first_name?.[0] || '') + (u.last_name?.[0] || '')).toUpperCase() || '??';
-      }
+      // Инициалы без зависимости от UI
+      const parts = name.trim().split(' ').filter(Boolean);
+      avatarEl.textContent = parts.length >= 2
+        ? (parts[0][0] + parts[1][0]).toUpperCase()
+        : name.slice(0, 2).toUpperCase();
     }
   },
 
@@ -103,39 +82,25 @@ const App = {
     localStorage.removeItem('access_token');
     localStorage.removeItem('refresh_token');
     localStorage.removeItem('token');
-    localStorage.removeItem('user');
     App.user = null;
-
-    const nameEl   = document.getElementById('sidebarName');
-    const roleEl   = document.getElementById('sidebarRole');
-    const avatarEl = document.getElementById('sidebarAvatar');
-    if (nameEl)   nameEl.textContent   = 'Загрузка...';
-    if (roleEl)   roleEl.textContent   = '';
-    if (avatarEl) avatarEl.textContent = '??';
   },
 
   async logout() {
     App.clearAuthData();
-    try {
-      await api.post('/auth/logout', null, { noRefresh: true });
-    } catch (_) {}
+    try { await api.post('/auth/logout', null, { noRefresh: true }); } catch (_) {}
     App.showAuth();
   },
 };
 
 // ── ГЛОБАЛЬНАЯ НАВИГАЦИЯ ───────────────────────────────────
 window.navigate = function(pageId) {
-  console.log('Переключение на страницу:', pageId);
-
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-  const targetPage = document.getElementById(`page-${pageId}`);
-  if (targetPage) targetPage.classList.add('active');
+  const target = document.getElementById(`page-${pageId}`);
+  if (target) target.classList.add('active');
 
-  document.querySelectorAll('.nav-link').forEach(link => {
-    link.classList.remove('active');
-    if (link.getAttribute('data-page') === pageId) {
-      link.classList.add('active');
-    }
+  document.querySelectorAll('.nav-link').forEach(l => {
+    l.classList.remove('active');
+    if (l.getAttribute('data-page') === pageId) l.classList.add('active');
   });
 
   const titles = {
@@ -152,8 +117,7 @@ window.navigate = function(pageId) {
   if (titleEl) titleEl.textContent = titles[pageId] || 'Панель управления';
 
   const container    = document.getElementById(`page-${pageId}`);
-  const functionName = `load${pageId.charAt(0).toUpperCase() + pageId.slice(1)}`;
-
+  const functionName = 'load' + pageId.charAt(0).toUpperCase() + pageId.slice(1);
   if (container && window.Pages && typeof window.Pages[functionName] === 'function') {
     window.Pages[functionName](container);
   }
@@ -168,27 +132,54 @@ document.addEventListener('DOMContentLoaded', () => {
     loginForm.addEventListener('submit', async (e) => {
       e.preventDefault();
 
-      const email  = document.getElementById('loginEmail').value.trim();
-      const pass   = document.getElementById('loginPassword').value;
+      const email  = document.getElementById('loginEmail')?.value.trim()  || '';
+      const pass   = document.getElementById('loginPassword')?.value       || '';
       const errEl  = document.getElementById('authError');
       const btn    = document.getElementById('loginBtn');
       const txt    = document.getElementById('loginBtnText');
       const spin   = document.getElementById('loginSpinner');
 
+      // Базовая проверка до запроса
+      if (!email || !pass) {
+        if (errEl) errEl.textContent = 'Введите email и пароль';
+        return;
+      }
+
       if (errEl) errEl.textContent = '';
-      if (btn)  btn.disabled  = true;
-      if (txt)  txt.hidden    = true;
-      if (spin) spin.hidden   = false;
+      if (btn)   btn.disabled  = true;
+      if (txt)   txt.hidden    = true;
+      if (spin)  spin.hidden   = false;
 
       try {
+        console.log('Отправляем запрос на вход...');
         const res = await api.login(email, pass);
-        api.setToken(res.accessToken || res.token);
-        localStorage.setItem('refresh_token', res.refreshToken);
-        if (res.user) localStorage.setItem('user', JSON.stringify(res.user));
-        
-        App.user = res.user;
+        console.log('Ответ сервера:', JSON.stringify(res));
+
+        // Защита от null
+        if (!res) {
+          if (errEl) errEl.textContent = 'Сервер не ответил. Попробуйте позже.';
+          return;
+        }
+
+        // Токен может быть accessToken или token
+        const token = res.accessToken || res.token || null;
+        if (!token) {
+          if (errEl) errEl.textContent = res.error || res.message || 'Нет токена в ответе';
+          return;
+        }
+
+        // Refresh token
+        const refresh = res.refreshToken || res.refresh_token || null;
+        if (refresh) localStorage.setItem('refresh_token', refresh);
+
+        api.setToken(token);
+        App.user = res.user || null;
+
+        console.log('Вход успешен, пользователь:', JSON.stringify(App.user));
         App.showApp();
+
       } catch (err) {
+        console.error('Ошибка входа:', err.message);
         if (errEl) errEl.textContent = err.message || 'Неверный email или пароль';
       } finally {
         if (btn)  btn.disabled = false;
@@ -198,29 +189,28 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // ── NAV КЛИКИ ─────────────────────────────────────────
+  // ── NAV ───────────────────────────────────────────────
   document.addEventListener('click', (e) => {
     const link = e.target.closest('.nav-link, .sidebar__logo');
     if (link) {
       e.preventDefault();
-      const page = link.getAttribute('data-page') || 'dashboard';
-      window.navigate(page);
+      window.navigate(link.getAttribute('data-page') || 'dashboard');
     }
   });
 
-  // ── EYE TOGGLE ────────────────────────────────────────
+  // ── EYE TOGGLE ───────────────────────────────────────
   document.getElementById('eyeBtn')?.addEventListener('click', () => {
     const inp = document.getElementById('loginPassword');
     if (inp) inp.type = inp.type === 'password' ? 'text' : 'password';
   });
 
-  // ── LOGOUT ────────────────────────────────────────────
+  // ── LOGOUT ───────────────────────────────────────────
   document.getElementById('logoutBtn')?.addEventListener('click', (e) => {
     e.preventDefault();
     if (confirm('Выйти из системы?')) App.logout();
   });
 
-  // ── ТЕМА ──────────────────────────────────────────────
+  // ── ТЕМА ─────────────────────────────────────────────
   const savedTheme = localStorage.getItem('theme') || 'light';
   document.documentElement.setAttribute('data-theme', savedTheme);
   updateThemeIcon(savedTheme);
@@ -233,12 +223,12 @@ document.addEventListener('DOMContentLoaded', () => {
     updateThemeIcon(next);
   });
 
-  function updateThemeIcon(theme) {
+  function updateThemeIcon(t) {
     const icon = document.getElementById('themeIcon');
-    if (icon) icon.textContent = theme === 'light' ? '🌙' : '☀️';
+    if (icon) icon.textContent = t === 'light' ? '🌙' : '☀️';
   }
 
-  // ── SIDEBAR COLLAPSE ──────────────────────────────────
+  // ── SIDEBAR ───────────────────────────────────────────
   const sidebar     = document.getElementById('sidebar');
   const collapseBtn = document.getElementById('sidebarCollapse');
   const main        = document.getElementById('main');
@@ -246,40 +236,24 @@ document.addEventListener('DOMContentLoaded', () => {
   collapseBtn?.addEventListener('click', () => {
     if (!sidebar || !main) return;
     sidebar.classList.toggle('collapsed');
-    main.style.marginLeft = sidebar.classList.contains('collapsed')
-      ? '60px'
-      : 'var(--sidebar-w)';
+    main.style.marginLeft = sidebar.classList.contains('collapsed') ? '60px' : 'var(--sidebar-w)';
   });
 
-  // ── MOBILE BURGER ─────────────────────────────────────
   document.getElementById('mobileBurger')?.addEventListener('click', () => {
-    if (sidebar) sidebar.classList.toggle('open');
+    sidebar?.classList.toggle('open');
   });
 
-  document.addEventListener('click', (e) => {
-    if (!sidebar) return;
-    const burger = document.getElementById('mobileBurger');
-    if (
-      window.innerWidth <= 768 &&
-      sidebar.classList.contains('open') &&
-      !sidebar.contains(e.target) &&
-      (!burger || !burger.contains(e.target))
-    ) {
-      sidebar.classList.remove('open');
-    }
-  });
-
-  // ── MODAL CLOSE ───────────────────────────────────────
+  // ── MODAL ─────────────────────────────────────────────
   document.getElementById('modalClose')?.addEventListener('click', () => {
-    if (typeof UI !== 'undefined' && typeof UI.closeModal === 'function') UI.closeModal();
+    if (typeof UI !== 'undefined') UI.closeModal();
   });
   document.getElementById('modalOverlay')?.addEventListener('click', (e) => {
     if (e.target === document.getElementById('modalOverlay')) {
-      if (typeof UI !== 'undefined' && typeof UI.closeModal === 'function') UI.closeModal();
+      if (typeof UI !== 'undefined') UI.closeModal();
     }
   });
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && typeof UI !== 'undefined' && typeof UI.closeModal === 'function') UI.closeModal();
+    if (e.key === 'Escape' && typeof UI !== 'undefined') UI.closeModal();
   });
 
   // ── СТАРТ ─────────────────────────────────────────────
