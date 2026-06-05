@@ -1,15 +1,34 @@
 const { Pool } = require('pg');
 
-const pool = new Pool({
-  host:     process.env.DB_HOST     || 'localhost',
-  port:     parseInt(process.env.DB_PORT || '5432'),
-  database: process.env.DB_NAME     || 'intan_clinic',
-  user:     process.env.DB_USER     || 'postgres',
-  password: process.env.DB_PASSWORD || '123',
-  max: 20,
-  idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 5000,
-});
+// Подстраховка для инициализации dotenv
+require('dotenv').config();
+
+let poolConfig = {};
+
+// Если в панели управления (или в .env) есть единая строка DATABASE_URL (как на Render)
+if (process.env.DATABASE_URL) {
+  poolConfig = {
+    connectionString: process.env.DATABASE_URL,
+    ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
+  };
+} else {
+  // Иначе собираем по отдельным параметрам (для локального компьютера)
+  poolConfig = {
+    host:     process.env.DB_HOST     || 'localhost',
+    port:     parseInt(process.env.DB_PORT || '5432'),
+    database: process.env.DB_NAME     || 'intan_clinic',
+    user:     process.env.DB_USER     || 'postgres',
+    password: process.env.DB_PASSWORD || '123',
+    ssl: false
+  };
+}
+
+// Добавляем общие лимиты для пула
+poolConfig.max = 20;
+poolConfig.idleTimeoutMillis = 30000;
+poolConfig.connectionTimeoutMillis = 5000;
+
+const pool = new Pool(poolConfig);
 
 pool.on('error', (err) => {
   console.error('Unexpected PostgreSQL pool error:', err.message);
