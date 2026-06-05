@@ -1,1 +1,4 @@
-{"version": 2, "rewrites": [{"source": "/(.*)", "destination": "/frontend/admin/$1"}]} 
+{
+ "version": 2,
+ "rewrites": [ { "source": "/(.*)", "destination": "/frontend/admin/$1" } ]
+}
