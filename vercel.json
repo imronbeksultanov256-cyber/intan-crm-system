@@ -1,4 +1,5 @@
 {
  "version": 2,
- "rewrites": [ { "source": "/(.*)", "destination": "/frontend/admin/$1" } ]
+ "builds": [ { "src": "frontend/admin/**/*", "use": "@vercel/static" } ],
+ "routes": [ { "src": "/(.*)", "dest": "frontend/admin/$1" } ]
 }
