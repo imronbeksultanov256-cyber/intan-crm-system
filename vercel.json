@@ -1,5 +1,5 @@
 {
  "version": 2,
- "builds": [ { "src": "frontend/admin/**/*", "use": "@vercel/static" } ],
- "routes": [ { "src": "/(.*)", "dest": "frontend/admin/$1" } ]
+ "cleanUrls": true,
+ "rewrites": [ { "source": "/js/(.*)", "destination": "frontend/admin/js/$1" }, { "source": "/css/(.*)", "destination": "frontend/admin/css/$1" }, { "source": "/(.*)", "destination": "frontend/admin/$1" } ]
 }
