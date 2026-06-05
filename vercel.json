@@ -28,5 +28,25 @@
       "src": "/(.*)",
       "dest": "frontend/admin/index.html"
     }
+  ],
+  "headers": [
+    {
+      "source": "/js/(.*)\\.js",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-cache, no-store, must-revalidate"
+        }
+      ]
+    },
+    {
+      "source": "/css/(.*)\\.css",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-cache, no-store, must-revalidate"
+        }
+      ]
+    }
   ]
 }
