@@ -35,18 +35,17 @@ const App = {
     }
   },
 
-  // ✅ ИСПРАВЛЕНО — добавлено имя метода, убрана опечатка
   showApp() {
     const authScreen = document.getElementById('authScreen');
     const appEl      = document.getElementById('app');
 
     if (authScreen) {
       authScreen.hidden       = true;
-      authScreen.style.display = 'none';   // ← принудительно скрываем логин
+      authScreen.style.display = 'none';
     }
     if (appEl) {
       appEl.hidden       = false;
-      appEl.style.display = 'flex';        // ← принудительно показываем приложение
+      appEl.style.display = 'flex';
     }
 
     App.applyRole();
@@ -58,14 +57,16 @@ const App = {
   },
 
   applyRole() {
-    const role  = App.user?.role;
+    const roleObj = App.user?.role;
+    const roleName = typeof roleObj === 'object' && roleObj !== null ? roleObj.name : roleObj;
+    
     const appEl = document.getElementById('app');
     if (!appEl) return;
 
     appEl.classList.remove('role-chief', 'role-doctor', 'role-admin');
-    if      (role === 'chief_doctor') appEl.classList.add('role-chief');
-    else if (role === 'doctor')       appEl.classList.add('role-doctor');
-    else if (role === 'admin')        appEl.classList.add('role-admin');
+    if      (roleName === 'chief_doctor') appEl.classList.add('role-chief');
+    else if (roleName === 'doctor')       appEl.classList.add('role-doctor');
+    else if (roleName === 'admin')        appEl.classList.add('role-admin');
   },
 
   updateSidebar() {
@@ -73,6 +74,8 @@ const App = {
     if (!u) return;
 
     const name = `${u.last_name || ''} ${u.first_name || ''}`.trim() || u.email;
+    const roleName = typeof u.role === 'object' && u.role !== null ? u.role.name : u.role;
+
     const roleLabels = {
       chief_doctor: 'Главный врач',
       doctor:       'Врач',
@@ -84,8 +87,15 @@ const App = {
     const avatarEl = document.getElementById('sidebarAvatar');
 
     if (nameEl)   nameEl.textContent   = name;
-    if (roleEl)   roleEl.textContent   = roleLabels[u.role] || u.role;
-    if (avatarEl) avatarEl.textContent = UI.initials(name);
+    if (roleEl)   roleEl.textContent   = roleLabels[roleName] || roleName || 'Сотрудник';
+    
+    if (avatarEl) {
+      if (typeof UI !== 'undefined' && typeof UI.initials === 'function') {
+        avatarEl.textContent = UI.initials(name);
+      } else {
+        avatarEl.textContent = ((u.first_name?.[0] || '') + (u.last_name?.[0] || '')).toUpperCase() || '??';
+      }
+    }
   },
 
   clearAuthData() {
@@ -93,6 +103,7 @@ const App = {
     localStorage.removeItem('access_token');
     localStorage.removeItem('refresh_token');
     localStorage.removeItem('token');
+    localStorage.removeItem('user');
     App.user = null;
 
     const nameEl   = document.getElementById('sidebarName');
@@ -171,8 +182,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
       try {
         const res = await api.login(email, pass);
-        api.setToken(res.accessToken);
+        api.setToken(res.accessToken || res.token);
         localStorage.setItem('refresh_token', res.refreshToken);
+        if (res.user) localStorage.setItem('user', JSON.stringify(res.user));
+        
         App.user = res.user;
         App.showApp();
       } catch (err) {
@@ -258,15 +271,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // ── MODAL CLOSE ───────────────────────────────────────
   document.getElementById('modalClose')?.addEventListener('click', () => {
-    if (typeof UI !== 'undefined') UI.closeModal();
+    if (typeof UI !== 'undefined' && typeof UI.closeModal === 'function') UI.closeModal();
   });
   document.getElementById('modalOverlay')?.addEventListener('click', (e) => {
     if (e.target === document.getElementById('modalOverlay')) {
-      if (typeof UI !== 'undefined') UI.closeModal();
+      if (typeof UI !== 'undefined' && typeof UI.closeModal === 'function') UI.closeModal();
     }
   });
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && typeof UI !== 'undefined') UI.closeModal();
+    if (e.key === 'Escape' && typeof UI !== 'undefined' && typeof UI.closeModal === 'function') UI.closeModal();
   });
 
   // ── СТАРТ ─────────────────────────────────────────────
