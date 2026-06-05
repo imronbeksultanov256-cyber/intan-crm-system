@@ -1,1 +1,1 @@
-{"version": 2, "rootDirectory": "frontend/admin"} 
+{"version": 2, "rewrites": [{"source": "/(.*)", "destination": "/frontend/admin/$1"}]} 
