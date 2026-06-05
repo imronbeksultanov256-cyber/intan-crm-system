@@ -54,11 +54,11 @@ const limiter = rateLimit({
   message: { error: 'Слишком много запросов. Попробуйте позже.' },
   standardHeaders: true, legacyHeaders: false,
 });
-app.use('/api', limiter);
-app.use('/api/auth/login', rateLimit({ windowMs: 15*60*1000, max: 20 }));
-
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+app.use('/api', limiter);
+app.use('/api/auth/login', rateLimit({ windowMs: 15*60*1000, max: 20 }));
 
 app.use('/uploads', express.static(path.resolve(uploadDir)));
 app.use('/admin',   express.static(path.resolve(__dirname, '../../frontend/admin')));
