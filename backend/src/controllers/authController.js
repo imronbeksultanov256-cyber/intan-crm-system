@@ -10,6 +10,11 @@ const generateTokens = (user) => {
     doctorId: user.doctor_id || null,
   };
 
+  // Проверка переменной окружения, чтобы сервер не падал молча
+  if (!process.env.JWT_SECRET) {
+    throw new Error('КРИТИЧЕСКАЯ ОШИБКА: Переменная окружения JWT_SECRET не задана в настройках сервера!');
+  }
+
   const accessToken = jwt.sign(payload, process.env.JWT_SECRET, {
     expiresIn: process.env.JWT_EXPIRES_IN || '8h',
   });
@@ -76,7 +81,12 @@ exports.login = async (req, res) => {
       },
     });
   } catch (err) {
-    console.error('Login error:', err.message);
+    // ВЫВОДИМ МАКСИМУМ ИНФОРМАЦИИ В ЛОГИ RENDER ДЛЯ ПОИСКА ОШИБКИ 500
+    console.error('=== ДЕТАЛЬНАЯ ОШИБКА АВТОРИЗАЦИИ ===');
+    console.error('Сообщение:', err.message || err);
+    if (err.stack) console.error('Стек вызова:', err.stack);
+    console.error('===================================');
+    
     res.status(500).json({ error: 'Ошибка сервера' });
   }
 };
