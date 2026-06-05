@@ -13,11 +13,39 @@ if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
 
 app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
 
+// ── ОБНОВЛЕННЫЙ CORS (Проблема 2) ───────────────────────────────────────────
+const allowedOrigins = [
+  // Локальная разработка
+  'http://localhost:3001',
+  'http://localhost:5500',
+  'http://127.0.0.1:5500',
+  'http://localhost:3000',
+  // Vercel — все ваши домены
+  'https://intan-crm-system-5czfz4u29-imronbek-s-projects.vercel.app',
+  'https://intan-crm-system.vercel.app',
+  'https://intan-crm-system-g6e9.vercel.app'
+];
+
 app.use(cors({
-  origin: '*', // Разрешает запросы от любого фронтенда (включая ваш Vercel)
-  methods: ['GET','POST','PUT','PATCH','DELETE','OPTIONS'],
-  allowedHeaders: ['Content-Type','Authorization'],
+  origin: function(origin, callback) {
+    // Разрешаем запросы без origin (например, Postman)
+    if (!origin) return callback(null, true);
+    
+    if (allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      console.warn('CORS заблокировал origin:', origin);
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
 }));
+
+// Явно обрабатываем предварительные (preflight) OPTIONS запросы
+app.options('*', cors());
+// ────────────────────────────────────────────────────────────────────────────
 
 const limiter = rateLimit({
   windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000,
@@ -62,5 +90,22 @@ app.listen(PORT, () => {
     startCronJobs();
   }
 });
+
+// ── KEEP ALIVE ДЛЯ БЕСПЛАТНОГО ТАРИФА RENDER (Проблема 4) ────────────────────
+if (process.env.NODE_ENV === 'production') {
+  const BACKEND_URL = process.env.RENDER_EXTERNAL_URL || 'https://intan-backend.onrender.com';
+  
+  setInterval(async () => {
+    try {
+      // Подключаем встроенный node-fetch, если версия Node старая, либо используем глобальный fetch
+      const fetchModule = global.fetch || require('node-fetch');
+      await fetchModule(`${BACKEND_URL}/health`);
+      console.log('[KeepAlive] ping OK');
+    } catch (e) {
+      console.warn('[KeepAlive] ping failed:', e.message);
+    }
+  }, 10 * 60 * 1000); // пингуем каждые 10 минут, чтобы сервер не засыпал
+}
+// ────────────────────────────────────────────────────────────────────────────
 
 module.exports = app;

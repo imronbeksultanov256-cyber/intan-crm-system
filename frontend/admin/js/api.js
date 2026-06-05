@@ -1,3 +1,5 @@
+// ── API CLIENT ─────────────────────────────────────────────
+// ВАЖНО: захардкоженный URL — не менять на относительный путь
 const API_BASE = 'https://intan-backend.onrender.com/api';
 
 const api = {
