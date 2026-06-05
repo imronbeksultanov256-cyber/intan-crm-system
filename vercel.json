@@ -1,5 +1,32 @@
 {
- "version": 2,
- "cleanUrls": true,
- "rewrites": [ { "source": "/js/(.*)", "destination": "frontend/admin/js/$1" }, { "source": "/css/(.*)", "destination": "frontend/admin/css/$1" }, { "source": "/(.*)", "destination": "frontend/admin/$1" } ]
+  "version": 2,
+  "public": true,
+  "builds": [
+    {
+      "src": "frontend/admin/**/*",
+      "use": "@vercel/static"
+    }
+  ],
+  "routes": [
+    {
+      "src": "/js/(.*)",
+      "dest": "frontend/admin/js/$1"
+    },
+    {
+      "src": "/css/(.*)",
+      "dest": "frontend/admin/css/$1"
+    },
+    {
+      "src": "/assets/(.*)",
+      "dest": "frontend/admin/assets/$1"
+    },
+    {
+      "src": "/admin/(.*)",
+      "dest": "frontend/admin/$1"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "frontend/admin/index.html"
+    }
+  ]
 }
