@@ -19,11 +19,11 @@ const allowedOrigins = [
   'http://localhost:3001',
   'http://localhost:5500',
   'http://127.0.0.1:5500',
-  'http://localhost:3000',
+  // Vercel — админка
   'https://intan-crm-system-g6e9.vercel.app',
-  'https://intan-crm-system.vercel.app'
+  // GitHub Pages — публичный сайт
+  'https://imronbeksultanov256-cyber.github.io',  // ← ДОБАВЬТЕ ЭТО
 ];
-
 app.use(cors({
   origin: function(origin, callback) {
     // 1. Разрешаем запросы без origin (например, инструменты тестирования)
