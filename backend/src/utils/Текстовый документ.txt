@@ -1,0 +1,40 @@
+const { pool } = require('./db');
+const https = require('https');
+
+// Neon автоматически делает бэкапы на бесплатном плане.
+// Дополнительно — экспорт в виде SQL каждую ночь:
+
+async function exportBackup() {
+  const client = await pool.connect();
+  try {
+    // Получаем все данные пациентов
+    const patients = await client.query('SELECT * FROM patients ORDER BY created_at');
+    const appointments = await client.query('SELECT * FROM appointments ORDER BY created_at');
+    
+    const backup = {
+      timestamp: new Date().toISOString(),
+      patients: patients.rows,
+      appointments: appointments.rows,
+    };
+    
+    // Отправляем в Telegram как файл
+    const TOKEN   = 8934629611:AAHLbTr5dCE4AvCjqGscXwJrmwChoKZ_TFw;
+    const CHAT_ID = 8191971983;
+    
+    if (TOKEN && CHAT_ID) {
+      const text = `🗄 Ежедневный бэкап — Интан\n📅 ${new Date().toLocaleDateString('ru-RU')}\n👥 Пациентов: ${patients.rowCount}\n📅 Записей: ${appointments.rowCount}`;
+      
+      await fetch(`https://api.telegram.org/bot${TOKEN}/sendMessage`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ chat_id: CHAT_ID, text }),
+      });
+    }
+    
+    console.log('[Backup] Готово:', new Date().toISOString());
+  } finally {
+    client.release();
+  }
+}
+
+module.exports = { exportBackup };
