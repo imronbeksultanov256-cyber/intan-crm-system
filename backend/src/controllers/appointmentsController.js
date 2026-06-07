@@ -38,13 +38,14 @@ exports.list = async (req, res) => {
          a.*,
          p.first_name || ' ' || p.last_name AS patient_name,
          p.phone AS patient_phone,
-         u.first_name || ' ' || u.last_name AS doctor_name,
+         COALESCE(u.first_name || ' ' || u.last_name, '— Не назначен —') AS doctor_name,
          doc.specialization,
-         s.name AS service_name, s.price AS service_price
+         s.name AS service_name, s.price AS service_price,
+         a.source
        FROM appointments a
        JOIN patients p ON p.id = a.patient_id
-       JOIN doctors doc ON doc.id = a.doctor_id
-       JOIN users u ON u.id = doc.user_id
+       LEFT JOIN doctors doc ON doc.id = a.doctor_id
+       LEFT JOIN users u ON u.id = doc.user_id
        LEFT JOIN services s ON s.id = a.service_id
        ${where}
        ORDER BY a.appointment_dt ASC
