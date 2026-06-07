@@ -122,15 +122,27 @@ router.post('/book', async (req, res) => {
       patient = result.rows[0];
     }
 
+    // Если doctor_id не передан — берём первого активного врача
+    let resolvedDoctorId = doctor_id || null;
+    if (!resolvedDoctorId) {
+      const firstDoctor = await query(
+        `SELECT d.id FROM doctors d
+         JOIN users u ON u.id = d.user_id
+         WHERE d.is_visible = TRUE AND u.is_active = TRUE
+         ORDER BY u.last_name LIMIT 1`
+      );
+      resolvedDoctorId = firstDoctor.rows[0]?.id || null;
+    }
+
     const appt = await query(
       `INSERT INTO appointments
-         (patient_id, doctor_id, service_id, appointment_dt, comment, source)
-       VALUES ($1,$2,$3,$4,$5,'online') RETURNING id, appointment_dt`,
-      [patient.id, doctor_id || null, service_id || null, appointment_dt, comment || null]
+         (patient_id, doctor_id, service_id, appointment_dt, comment, source, status)
+       VALUES ($1,$2,$3,$4,$5,'online','pending') RETURNING id, appointment_dt`,
+      [patient.id, resolvedDoctorId, service_id || null, appointment_dt, comment || null]
     );
     res.status(201).json({ success: true, appointment: appt.rows[0] });
   } catch (err) {
-    console.error(err);
+    console.error('[/book] Ошибка:', err.message, err.detail || '');
     res.status(500).json({ error: 'Ошибка при записи. Попробуйте позвонить нам.' });
   }
 });
