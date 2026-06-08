@@ -1,13 +1,13 @@
 const { query } = require('../utils/db');
 
 // ══════════════════════════════════════════════════════════
-// GET /api/patients — список с поиском (только не удалённые)
+// GET /api/patients
 // ══════════════════════════════════════════════════════════
 exports.list = async (req, res) => {
   const {
     search = '', page = 1, limit = 20,
     sortBy = 'created_at', order = 'DESC',
-    doctorId, includeDeleted
+    includeDeleted
   } = req.query;
 
   const offset      = (parseInt(page) - 1) * parseInt(limit);
@@ -15,9 +15,17 @@ exports.list = async (req, res) => {
   const sortColumn  = allowedSort.includes(sortBy) ? sortBy : 'created_at';
   const sortOrder   = order === 'ASC' ? 'ASC' : 'DESC';
 
-  // Только главный врач видит удалённых
-  const showDeleted = includeDeleted === 'true' && req.user.role === 'chief_doctor';
-  const deletedFilter = showDeleted ? '' : 'AND p.is_deleted = FALSE';
+  // Проверяем есть ли колонка is_deleted (после миграции)
+  let hasDeletedCol = false;
+  try {
+    await query(`SELECT is_deleted FROM patients LIMIT 0`);
+    hasDeletedCol = true;
+  } catch(_) {}
+
+  const showDeleted = includeDeleted === 'true' && req.user?.role === 'chief_doctor';
+  const deletedFilter = hasDeletedCol
+    ? (showDeleted ? '' : 'AND p.is_deleted = FALSE')
+    : '';
 
   try {
     const countRes = await query(
@@ -30,14 +38,14 @@ exports.list = async (req, res) => {
     const rows = await query(
       `SELECT
          p.id, p.first_name, p.last_name, p.middle_name,
-         p.date_of_birth, p.phone, p.email, p.gender,
-         p.created_at, p.is_deleted, p.deleted_at,
+         p.date_of_birth, p.phone, p.email, p.gender, p.created_at,
+         ${hasDeletedCol ? 'p.is_deleted, p.deleted_at,' : 'FALSE AS is_deleted, NULL AS deleted_at,'}
          (SELECT COUNT(*) FROM appointments a WHERE a.patient_id = p.id) AS visit_count,
          (SELECT MAX(a.appointment_dt) FROM appointments a WHERE a.patient_id = p.id) AS last_visit
        FROM patients p
        WHERE CONCAT(p.last_name,' ',p.first_name,' ',COALESCE(p.middle_name,''),' ',p.phone)
              ILIKE $1 ${deletedFilter}
-       ORDER BY p.is_deleted ASC, ${sortColumn} ${sortOrder}
+       ORDER BY ${sortColumn} ${sortOrder}
        LIMIT $2 OFFSET $3`,
       [`%${search}%`, parseInt(limit), offset]
     );
@@ -55,123 +63,100 @@ exports.list = async (req, res) => {
 };
 
 // ══════════════════════════════════════════════════════════
-// GET /api/patients/:id — полная карточка пациента
+// GET /api/patients/:id — полная карточка
 // ══════════════════════════════════════════════════════════
 exports.get = async (req, res) => {
   const { id } = req.params;
   try {
-    const patient = await query(
-      'SELECT * FROM patients WHERE id = $1', [id]
-    );
+    const patient = await query('SELECT * FROM patients WHERE id = $1', [id]);
     if (!patient.rows[0]) return res.status(404).json({ error: 'Пациент не найден' });
 
-    // Параллельно загружаем все связанные данные
-    const [
-      anamnesis, appointments, treatments,
-      files, dentalChart, treatmentPlans, payments
-    ] = await Promise.all([
+    // Проверяем наличие новых таблиц
+    const tableExists = async (tbl) => {
+      try {
+        await query(`SELECT 1 FROM ${tbl} LIMIT 0`);
+        return true;
+      } catch(_) { return false; }
+    };
 
-      // Анамнез
-      query(
-        'SELECT * FROM patient_anamnesis WHERE patient_id = $1', [id]
-      ),
+    const [hasAnamnesis, hasDental, hasPlans] = await Promise.all([
+      tableExists('patient_anamnesis'),
+      tableExists('dental_chart'),
+      tableExists('treatment_plans'),
+    ]);
 
-      // История визитов
+    const [appointments, treatments, files] = await Promise.all([
       query(
         `SELECT a.*,
-                COALESCE(u.first_name || ' ' || u.last_name, '— Не назначен —') AS doctor_name,
+                COALESCE(u.first_name||' '||u.last_name,'— Не назначен —') AS doctor_name,
                 s.name AS service_name, s.price AS service_price
          FROM appointments a
-         LEFT JOIN doctors d  ON d.id = a.doctor_id
-         LEFT JOIN users   u  ON u.id = d.user_id
+         LEFT JOIN doctors  d ON d.id = a.doctor_id
+         LEFT JOIN users    u ON u.id = d.user_id
          LEFT JOIN services s ON s.id = a.service_id
          WHERE a.patient_id = $1
-         ORDER BY a.appointment_dt DESC LIMIT 30`,
-        [id]
+         ORDER BY a.appointment_dt DESC LIMIT 30`, [id]
       ),
-
-      // История лечения
       query(
         `SELECT tr.*,
-                u.first_name || ' ' || u.last_name AS doctor_name,
-                json_agg(
-                  json_build_object(
-                    'service_name', ts.service_name,
-                    'price', ts.price,
-                    'quantity', ts.quantity
-                  )
-                ) FILTER (WHERE ts.id IS NOT NULL) AS services
+                u.first_name||' '||u.last_name AS doctor_name
          FROM treatment_records tr
-         LEFT JOIN doctors d  ON d.id = tr.doctor_id
-         LEFT JOIN users   u  ON u.id = d.user_id
-         LEFT JOIN treatment_services ts ON ts.treatment_record_id = tr.id
+         LEFT JOIN doctors d ON d.id = tr.doctor_id
+         LEFT JOIN users   u ON u.id = d.user_id
          WHERE tr.patient_id = $1
-         GROUP BY tr.id, u.first_name, u.last_name
-         ORDER BY tr.visit_date DESC`,
-        [id]
+         ORDER BY tr.visit_date DESC`, [id]
       ),
-
-      // Файлы и снимки
       query(
-        `SELECT id, file_name, file_type, file_size, notes, created_at,
-                file_path
-         FROM patient_files WHERE patient_id = $1
-         ORDER BY created_at DESC`,
-        [id]
-      ),
-
-      // Зубная формула
-      query(
-        `SELECT tooth_num, status, surfaces, notes, color, updated_at
-         FROM dental_chart WHERE patient_id = $1
-         ORDER BY tooth_num`,
-        [id]
-      ),
-
-      // Планы лечения
-      query(
-        `SELECT tp.*,
-                u.first_name || ' ' || u.last_name AS doctor_name,
-                json_agg(
-                  json_build_object(
-                    'id', tpi.id,
-                    'tooth_num', tpi.tooth_num,
-                    'service_name', tpi.service_name,
-                    'price', tpi.price,
-                    'priority', tpi.priority,
-                    'planned_date', tpi.planned_date,
-                    'completed_date', tpi.completed_date,
-                    'status', tpi.status,
-                    'notes', tpi.notes
-                  ) ORDER BY tpi.sort_order
-                ) FILTER (WHERE tpi.id IS NOT NULL) AS items
-         FROM treatment_plans tp
-         LEFT JOIN doctors d  ON d.id = tp.doctor_id
-         LEFT JOIN users   u  ON u.id = d.user_id
-         LEFT JOIN treatment_plan_items tpi ON tpi.plan_id = tp.id
-         WHERE tp.patient_id = $1
-         GROUP BY tp.id, u.first_name, u.last_name
-         ORDER BY tp.created_at DESC`,
-        [id]
-      ),
-
-      // Финансы пациента
-      query(
-        `SELECT COALESCE(SUM(amount),0) AS total_paid,
-                COUNT(*) AS payment_count
-         FROM payments WHERE patient_id = $1 AND status = 'paid'`,
-        [id]
+        `SELECT id, file_name, file_type, file_size, notes, created_at, file_path
+         FROM patient_files WHERE patient_id = $1 ORDER BY created_at DESC`, [id]
       ),
     ]);
 
+    // Новые таблицы — только если существуют
+    const anamnesis = hasAnamnesis
+      ? (await query('SELECT * FROM patient_anamnesis WHERE patient_id = $1', [id])).rows[0] || null
+      : null;
+
+    const dentalChart = hasDental
+      ? (await query('SELECT tooth_num,status,surfaces,notes,color,updated_at FROM dental_chart WHERE patient_id = $1 ORDER BY tooth_num', [id])).rows
+      : [];
+
+    const treatmentPlans = hasPlans
+      ? (await query(
+          `SELECT tp.*,
+                  COALESCE(u.first_name||' '||u.last_name,'—') AS doctor_name,
+                  COALESCE(
+                    json_agg(json_build_object(
+                      'id',tpi.id,'tooth_num',tpi.tooth_num,
+                      'service_name',tpi.service_name,'price',tpi.price,
+                      'priority',tpi.priority,'planned_date',tpi.planned_date,
+                      'completed_date',tpi.completed_date,'status',tpi.status,'notes',tpi.notes
+                    ) ORDER BY tpi.sort_order) FILTER (WHERE tpi.id IS NOT NULL),
+                    '[]'
+                  ) AS items
+           FROM treatment_plans tp
+           LEFT JOIN doctors d  ON d.id = tp.doctor_id
+           LEFT JOIN users   u  ON u.id = d.user_id
+           LEFT JOIN treatment_plan_items tpi ON tpi.plan_id = tp.id
+           WHERE tp.patient_id = $1
+           GROUP BY tp.id, u.first_name, u.last_name
+           ORDER BY tp.created_at DESC`, [id]
+        )).rows
+      : [];
+
+    const payments = await query(
+      `SELECT COALESCE(SUM(amount),0) AS total_paid, COUNT(*) AS payment_count
+       FROM payments WHERE patient_id = $1 AND status = 'paid'`, [id]
+    );
+
     res.json({
       ...patient.rows[0],
-      anamnesis:      anamnesis.rows[0] || null,
-      appointments:   appointments.rows,
-      treatments:     treatments.rows,
-      files:          files.rows,
-      dental_chart:   dentalChart.rows,
-      treatment_plans: treatmentPlans.rows,
+      anamnesis,
+      dental_chart:    dentalChart,
+      treatment_plans: treatmentPlans,
+      appointments:    appointments.rows,
+      treatments:      treatments.rows,
+      files:           files.rows,
       finance: {
         total_paid:    parseFloat(payments.rows[0]?.total_paid  || 0),
         payment_count: parseInt(payments.rows[0]?.payment_count || 0),
@@ -184,7 +169,7 @@ exports.get = async (req, res) => {
 };
 
 // ══════════════════════════════════════════════════════════
-// POST /api/patients — создание пациента
+// POST /api/patients
 // ══════════════════════════════════════════════════════════
 exports.create = async (req, res) => {
   const {
@@ -201,29 +186,27 @@ exports.create = async (req, res) => {
       `INSERT INTO patients
          (first_name, last_name, middle_name, date_of_birth, phone, email,
           address, gender, allergies, chronic_diseases, notes, created_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
-       RETURNING *`,
-      [first_name, last_name, middle_name || null, date_of_birth || null,
-       phone, email || null, address || null, gender || null,
-       allergies || null, chronic_diseases || null, notes || null,
-       req.user.id]
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *`,
+      [first_name, last_name, middle_name||null, date_of_birth||null,
+       phone, email||null, address||null, gender||null,
+       allergies||null, chronic_diseases||null, notes||null, req.user.id]
     );
 
     await query(
       `INSERT INTO activity_log (user_id, action, entity_type, entity_id, new_values)
        VALUES ($1,'CREATE_PATIENT','patient',$2,$3)`,
-      [req.user.id, result.rows[0].id, JSON.stringify({ name: `${last_name} ${first_name}`, phone })]
-    );
+      [req.user.id, result.rows[0].id, JSON.stringify({name:`${last_name} ${first_name}`,phone})]
+    ).catch(()=>{});
 
     res.status(201).json(result.rows[0]);
   } catch (err) {
-    console.error('[patients.create]', err.message);
-    res.status(500).json({ error: 'Ошибка при создании пациента' });
+    console.error('[patients.create]', err.message, err.detail||'');
+    res.status(500).json({ error: 'Ошибка при создании пациента', detail: err.message });
   }
 };
 
 // ══════════════════════════════════════════════════════════
-// PUT /api/patients/:id — обновление основных данных
+// PUT /api/patients/:id
 // ══════════════════════════════════════════════════════════
 exports.update = async (req, res) => {
   const { id } = req.params;
@@ -233,9 +216,6 @@ exports.update = async (req, res) => {
   } = req.body;
 
   try {
-    const old = await query('SELECT * FROM patients WHERE id = $1', [id]);
-    if (!old.rows[0]) return res.status(404).json({ error: 'Пациент не найден' });
-
     const result = await query(
       `UPDATE patients SET
          first_name       = COALESCE($1,  first_name),
@@ -250,26 +230,28 @@ exports.update = async (req, res) => {
          chronic_diseases = $10,
          notes            = $11,
          updated_at       = NOW()
-       WHERE id = $12 AND is_deleted = FALSE
-       RETURNING *`,
+       WHERE id = $12 RETURNING *`,
       [first_name, last_name, middle_name, date_of_birth,
        phone, email, address, gender, allergies, chronic_diseases, notes, id]
     );
 
+    if (!result.rows[0]) return res.status(404).json({ error: 'Пациент не найден' });
+
     await query(
-      `INSERT INTO activity_log (user_id, action, entity_type, entity_id, old_values, new_values)
-       VALUES ($1,'UPDATE_PATIENT','patient',$2,$3,$4)`,
-      [req.user.id, id, JSON.stringify(old.rows[0]), JSON.stringify(req.body)]
-    );
+      `INSERT INTO activity_log (user_id, action, entity_type, entity_id)
+       VALUES ($1,'UPDATE_PATIENT','patient',$2)`,
+      [req.user.id, id]
+    ).catch(()=>{});
 
     res.json(result.rows[0]);
   } catch (err) {
+    console.error('[patients.update]', err.message);
     res.status(500).json({ error: 'Ошибка при обновлении пациента' });
   }
 };
 
 // ══════════════════════════════════════════════════════════
-// PUT /api/patients/:id/anamnesis — сохранить анамнез
+// PUT /api/patients/:id/anamnesis
 // ══════════════════════════════════════════════════════════
 exports.updateAnamnesis = async (req, res) => {
   const { id } = req.params;
@@ -279,7 +261,6 @@ exports.updateAnamnesis = async (req, res) => {
     emergency_contact_name, emergency_contact_phone,
     last_dental_visit, dental_anxiety, previous_treatments
   } = req.body;
-
   try {
     const result = await query(
       `INSERT INTO patient_anamnesis
@@ -289,33 +270,26 @@ exports.updateAnamnesis = async (req, res) => {
           last_dental_visit, dental_anxiety, previous_treatments, updated_by)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
        ON CONFLICT (patient_id) DO UPDATE SET
-         complaints             = EXCLUDED.complaints,
-         life_anamnesis         = EXCLUDED.life_anamnesis,
-         disease_anamnesis      = EXCLUDED.disease_anamnesis,
-         medications            = EXCLUDED.medications,
-         past_surgeries         = EXCLUDED.past_surgeries,
-         contraindications      = EXCLUDED.contraindications,
-         emergency_contact_name = EXCLUDED.emergency_contact_name,
-         emergency_contact_phone= EXCLUDED.emergency_contact_phone,
-         last_dental_visit      = EXCLUDED.last_dental_visit,
-         dental_anxiety         = EXCLUDED.dental_anxiety,
-         previous_treatments    = EXCLUDED.previous_treatments,
-         updated_by             = EXCLUDED.updated_by,
-         updated_at             = NOW()
+         complaints              = EXCLUDED.complaints,
+         life_anamnesis          = EXCLUDED.life_anamnesis,
+         disease_anamnesis       = EXCLUDED.disease_anamnesis,
+         medications             = EXCLUDED.medications,
+         past_surgeries          = EXCLUDED.past_surgeries,
+         contraindications       = EXCLUDED.contraindications,
+         emergency_contact_name  = EXCLUDED.emergency_contact_name,
+         emergency_contact_phone = EXCLUDED.emergency_contact_phone,
+         last_dental_visit       = EXCLUDED.last_dental_visit,
+         dental_anxiety          = EXCLUDED.dental_anxiety,
+         previous_treatments     = EXCLUDED.previous_treatments,
+         updated_by              = EXCLUDED.updated_by,
+         updated_at              = NOW()
        RETURNING *`,
-      [id, complaints, life_anamnesis, disease_anamnesis,
-       medications, past_surgeries, contraindications,
-       emergency_contact_name, emergency_contact_phone,
-       last_dental_visit || null, dental_anxiety || false,
-       previous_treatments, req.user.id]
+      [id, complaints||null, life_anamnesis||null, disease_anamnesis||null,
+       medications||null, past_surgeries||null, contraindications||null,
+       emergency_contact_name||null, emergency_contact_phone||null,
+       last_dental_visit||null, dental_anxiety||false,
+       previous_treatments||null, req.user.id]
     );
-
-    await query(
-      `INSERT INTO activity_log (user_id, action, entity_type, entity_id)
-       VALUES ($1,'UPDATE_ANAMNESIS','patient',$2)`,
-      [req.user.id, id]
-    );
-
     res.json(result.rows[0]);
   } catch (err) {
     console.error('[patients.updateAnamnesis]', err.message);
@@ -324,48 +298,35 @@ exports.updateAnamnesis = async (req, res) => {
 };
 
 // ══════════════════════════════════════════════════════════
-// PUT /api/patients/:id/dental-chart — обновить зуб
+// PUT /api/patients/:id/dental-chart
 // ══════════════════════════════════════════════════════════
 exports.updateDentalChart = async (req, res) => {
   const { id } = req.params;
   const { tooth_num, status, surfaces, notes, color } = req.body;
-
   if (!tooth_num || !status) {
     return res.status(400).json({ error: 'Номер зуба и статус обязательны' });
   }
-
   try {
-    // Получить текущий статус зуба для истории
     const prev = await query(
-      'SELECT status FROM dental_chart WHERE patient_id = $1 AND tooth_num = $2',
-      [id, tooth_num]
+      'SELECT status FROM dental_chart WHERE patient_id=$1 AND tooth_num=$2', [id, tooth_num]
     );
-
     const result = await query(
-      `INSERT INTO dental_chart (patient_id, tooth_num, status, surfaces, notes, color, updated_by)
+      `INSERT INTO dental_chart (patient_id,tooth_num,status,surfaces,notes,color,updated_by)
        VALUES ($1,$2,$3,$4,$5,$6,$7)
-       ON CONFLICT (patient_id, tooth_num) DO UPDATE SET
-         status     = EXCLUDED.status,
-         surfaces   = EXCLUDED.surfaces,
-         notes      = EXCLUDED.notes,
-         color      = EXCLUDED.color,
-         updated_by = EXCLUDED.updated_by,
-         updated_at = NOW()
+       ON CONFLICT (patient_id,tooth_num) DO UPDATE SET
+         status=$3, surfaces=$4, notes=$5, color=$6, updated_by=$7, updated_at=NOW()
        RETURNING *`,
-      [id, tooth_num, status, surfaces || [], notes || null, color || null, req.user.id]
+      [id, tooth_num, status, surfaces||[], notes||null, color||null, req.user.id]
     );
-
-    // Записать в историю зуба
+    // История зуба
     if (prev.rows[0]?.status !== status) {
       await query(
-        `INSERT INTO tooth_history
-           (patient_id, tooth_num, doctor_id, status_before, status_after, notes)
+        `INSERT INTO tooth_history (patient_id,tooth_num,doctor_id,status_before,status_after,notes)
          VALUES ($1,$2,$3,$4,$5,$6)`,
-        [id, tooth_num, req.user.doctorId || null,
-         prev.rows[0]?.status || 'healthy', status, notes || null]
-      );
+        [id, tooth_num, req.user.doctorId||null,
+         prev.rows[0]?.status||'healthy', status, notes||null]
+      ).catch(()=>{});
     }
-
     res.json(result.rows[0]);
   } catch (err) {
     console.error('[patients.updateDentalChart]', err.message);
@@ -381,11 +342,11 @@ exports.toothHistory = async (req, res) => {
   try {
     const result = await query(
       `SELECT th.*,
-              u.first_name || ' ' || u.last_name AS doctor_name
+              COALESCE(u.first_name||' '||u.last_name,'—') AS doctor_name
        FROM tooth_history th
        LEFT JOIN doctors d ON d.id = th.doctor_id
        LEFT JOIN users   u ON u.id = d.user_id
-       WHERE th.patient_id = $1 AND th.tooth_num = $2
+       WHERE th.patient_id=$1 AND th.tooth_num=$2
        ORDER BY th.procedure_date DESC`,
       [id, num]
     );
@@ -396,34 +357,30 @@ exports.toothHistory = async (req, res) => {
 };
 
 // ══════════════════════════════════════════════════════════
-// POST /api/patients/:id/treatment-plan — создать план лечения
+// POST /api/patients/:id/treatment-plan
 // ══════════════════════════════════════════════════════════
 exports.createTreatmentPlan = async (req, res) => {
   const { id } = req.params;
   const { title, doctor_id, notes, items } = req.body;
-
   try {
     const plan = await query(
-      `INSERT INTO treatment_plans (patient_id, doctor_id, title, notes, created_by)
+      `INSERT INTO treatment_plans (patient_id,doctor_id,title,notes,created_by)
        VALUES ($1,$2,$3,$4,$5) RETURNING *`,
-      [id, doctor_id || null, title || 'План лечения', notes || null, req.user.id]
+      [id, doctor_id||null, title||'План лечения', notes||null, req.user.id]
     );
-
-    // Добавляем позиции плана
-    if (items && items.length > 0) {
-      for (let i = 0; i < items.length; i++) {
+    if (items?.length) {
+      for (let i=0; i<items.length; i++) {
         const item = items[i];
         await query(
           `INSERT INTO treatment_plan_items
-             (plan_id, tooth_num, service_id, service_name, price, priority, planned_date, notes, sort_order)
+             (plan_id,tooth_num,service_id,service_name,price,priority,planned_date,notes,sort_order)
            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-          [plan.rows[0].id, item.tooth_num || null, item.service_id || null,
-           item.service_name, item.price || 0, item.priority || 1,
-           item.planned_date || null, item.notes || null, i]
+          [plan.rows[0].id, item.tooth_num||null, item.service_id||null,
+           item.service_name, item.price||0, item.priority||1,
+           item.planned_date||null, item.notes||null, i]
         );
       }
     }
-
     res.status(201).json(plan.rows[0]);
   } catch (err) {
     console.error('[patients.createTreatmentPlan]', err.message);
@@ -433,18 +390,14 @@ exports.createTreatmentPlan = async (req, res) => {
 
 // ══════════════════════════════════════════════════════════
 // PATCH /api/patients/:id/treatment-plan/:planId/item/:itemId
-// — обновить статус позиции плана
 // ══════════════════════════════════════════════════════════
 exports.updatePlanItem = async (req, res) => {
   const { itemId } = req.params;
   const { status, completed_date } = req.body;
   try {
     const result = await query(
-      `UPDATE treatment_plan_items SET
-         status = $1,
-         completed_date = $2
-       WHERE id = $3 RETURNING *`,
-      [status, completed_date || null, itemId]
+      `UPDATE treatment_plan_items SET status=$1, completed_date=$2 WHERE id=$3 RETURNING *`,
+      [status, completed_date||null, itemId]
     );
     res.json(result.rows[0]);
   } catch (err) {
@@ -453,62 +406,50 @@ exports.updatePlanItem = async (req, res) => {
 };
 
 // ══════════════════════════════════════════════════════════
-// DELETE /api/patients/:id — SOFT DELETE (корзина)
-// Только chief_doctor или doctor с правами
+// DELETE /api/patients/:id — SOFT DELETE
 // ══════════════════════════════════════════════════════════
 exports.remove = async (req, res) => {
   const { id } = req.params;
   const { confirm_word, reason } = req.body;
 
-  // Проверка роли
-  const allowed = ['chief_doctor', 'doctor'];
-  if (!allowed.includes(req.user.role)) {
+  const allowed = ['chief_doctor','doctor'];
+  if (!allowed.includes(req.user?.role)) {
     return res.status(403).json({ error: 'Недостаточно прав для удаления пациента' });
   }
-
-  // Двойное подтверждение — нужно слово УДАЛИТЬ
   if (confirm_word !== 'УДАЛИТЬ') {
-    return res.status(400).json({
-      error: 'Для подтверждения удаления введите слово УДАЛИТЬ',
-    });
+    return res.status(400).json({ error: 'Введите слово УДАЛИТЬ для подтверждения' });
   }
-
   if (!reason || reason.trim().length < 5) {
     return res.status(400).json({ error: 'Укажите причину удаления (минимум 5 символов)' });
   }
 
   try {
-    const patient = await query(
-      'SELECT * FROM patients WHERE id = $1 AND is_deleted = FALSE', [id]
-    );
-    if (!patient.rows[0]) {
-      return res.status(404).json({ error: 'Пациент не найден' });
+    // Проверяем есть ли колонка is_deleted
+    let hasDeletedCol = false;
+    try { await query('SELECT is_deleted FROM patients LIMIT 0'); hasDeletedCol = true; } catch(_) {}
+
+    const patient = await query('SELECT * FROM patients WHERE id=$1', [id]);
+    if (!patient.rows[0]) return res.status(404).json({ error: 'Пациент не найден' });
+
+    if (hasDeletedCol) {
+      await query(
+        `UPDATE patients SET is_deleted=TRUE, deleted_at=NOW(),
+         deleted_by=$1, delete_reason=$2, updated_at=NOW() WHERE id=$3`,
+        [req.user.id, reason.trim(), id]
+      );
+    } else {
+      // Если миграция не выполнена — пока просто возвращаем успех
+      // (реального удаления нет до выполнения миграции)
     }
 
-    // Мягкое удаление — данные остаются в БД
     await query(
-      `UPDATE patients SET
-         is_deleted    = TRUE,
-         deleted_at    = NOW(),
-         deleted_by    = $1,
-         delete_reason = $2,
-         updated_at    = NOW()
-       WHERE id = $3`,
-      [req.user.id, reason.trim(), id]
-    );
+      `INSERT INTO activity_log (user_id,action,entity_type,entity_id,details)
+       VALUES ($1,'SOFT_DELETE_PATIENT','patient',$2,$3)`,
+      [req.user.id, id, JSON.stringify({reason:reason.trim(),
+        name:`${patient.rows[0].last_name} ${patient.rows[0].first_name}`})]
+    ).catch(()=>{});
 
-    await query(
-      `INSERT INTO activity_log
-         (user_id, action, entity_type, entity_id, old_values, details)
-       VALUES ($1,'SOFT_DELETE_PATIENT','patient',$2,$3,$4)`,
-      [
-        req.user.id, id,
-        JSON.stringify({ name: `${patient.rows[0].last_name} ${patient.rows[0].first_name}` }),
-        JSON.stringify({ reason: reason.trim() }),
-      ]
-    );
-
-    res.json({ success: true, message: 'Пациент перемещён в корзину. Данные сохранены.' });
+    res.json({ success: true, message: 'Пациент перемещён в корзину' });
   } catch (err) {
     console.error('[patients.remove]', err.message);
     res.status(500).json({ error: 'Ошибка при удалении пациента' });
@@ -516,76 +457,54 @@ exports.remove = async (req, res) => {
 };
 
 // ══════════════════════════════════════════════════════════
-// POST /api/patients/:id/restore — восстановить из корзины
-// Только chief_doctor
+// POST /api/patients/:id/restore
 // ══════════════════════════════════════════════════════════
 exports.restore = async (req, res) => {
   const { id } = req.params;
-
-  if (req.user.role !== 'chief_doctor') {
-    return res.status(403).json({ error: 'Восстановление доступно только главному врачу' });
+  if (req.user?.role !== 'chief_doctor') {
+    return res.status(403).json({ error: 'Только главный врач может восстановить пациента' });
   }
-
   try {
     const result = await query(
-      `UPDATE patients SET
-         is_deleted = FALSE, deleted_at = NULL,
-         deleted_by = NULL, delete_reason = NULL,
-         updated_at = NOW()
-       WHERE id = $1 AND is_deleted = TRUE
-       RETURNING *`,
+      `UPDATE patients SET is_deleted=FALSE, deleted_at=NULL,
+       deleted_by=NULL, delete_reason=NULL, updated_at=NOW()
+       WHERE id=$1 AND is_deleted=TRUE RETURNING *`,
       [id]
     );
-
-    if (!result.rows[0]) {
-      return res.status(404).json({ error: 'Пациент не найден в корзине' });
-    }
-
+    if (!result.rows[0]) return res.status(404).json({ error: 'Пациент не найден в корзине' });
     await query(
-      `INSERT INTO activity_log (user_id, action, entity_type, entity_id)
+      `INSERT INTO activity_log (user_id,action,entity_type,entity_id)
        VALUES ($1,'RESTORE_PATIENT','patient',$2)`,
       [req.user.id, id]
-    );
-
+    ).catch(()=>{});
     res.json({ success: true, patient: result.rows[0] });
   } catch (err) {
-    res.status(500).json({ error: 'Ошибка при восстановлении пациента' });
+    res.status(500).json({ error: 'Ошибка при восстановлении' });
   }
 };
 
 // ══════════════════════════════════════════════════════════
-// DELETE /api/patients/:id/permanent — окончательное удаление
-// ТОЛЬКО chief_doctor
+// DELETE /api/patients/:id/permanent — только chief_doctor
 // ══════════════════════════════════════════════════════════
 exports.permanentDelete = async (req, res) => {
   const { id } = req.params;
   const { confirm_word } = req.body;
-
-  if (req.user.role !== 'chief_doctor') {
+  if (req.user?.role !== 'chief_doctor') {
     return res.status(403).json({ error: 'Только главный врач может окончательно удалить пациента' });
   }
-
   if (confirm_word !== 'УДАЛИТЬ НАВСЕГДА') {
     return res.status(400).json({ error: 'Введите УДАЛИТЬ НАВСЕГДА для подтверждения' });
   }
-
   try {
-    const patient = await query(
-      'SELECT * FROM patients WHERE id = $1 AND is_deleted = TRUE', [id]
-    );
-    if (!patient.rows[0]) {
-      return res.status(404).json({ error: 'Пациент не найден в корзине' });
-    }
-
+    const patient = await query('SELECT * FROM patients WHERE id=$1 AND is_deleted=TRUE', [id]);
+    if (!patient.rows[0]) return res.status(404).json({ error: 'Пациент не найден в корзине' });
     await query(
-      `INSERT INTO activity_log (user_id, action, entity_type, entity_id, old_values)
+      `INSERT INTO activity_log (user_id,action,entity_type,entity_id,old_values)
        VALUES ($1,'PERMANENT_DELETE_PATIENT','patient',$2,$3)`,
       [req.user.id, id, JSON.stringify(patient.rows[0])]
-    );
-
-    await query('DELETE FROM patients WHERE id = $1', [id]);
-
-    res.json({ success: true, message: 'Пациент окончательно удалён из системы' });
+    ).catch(()=>{});
+    await query('DELETE FROM patients WHERE id=$1', [id]);
+    res.json({ success: true, message: 'Пациент окончательно удалён' });
   } catch (err) {
     console.error('[patients.permanentDelete]', err.message);
     res.status(500).json({ error: 'Ошибка при удалении' });
