@@ -4,6 +4,7 @@ const API_BASE = window.location.hostname === 'localhost' || window.location.hos
   : 'https://intan-backend.onrender.com/api';
 
 const api = {
+  baseUrl: API_BASE,
 
   getToken() {
     return localStorage.getItem('access_token') || null;
@@ -119,6 +120,11 @@ const api = {
   financeDashboard: ()       => api.get('/finance/dashboard'),
   payments:         (p = '') => api.get(`/finance/payments${p}`),
   createPayment:    (body)   => api.post('/finance/payments', body),
+
+  // ── Leads / Заявки ────────────────────────────────────────
+  leads: () => api.get('/leads'),
+  updateLeadStatus: (id, status) => api.patch(`/leads/${id}/status`, { status }),
+  deleteLead: (id) => api.del(`/leads/${id}`),
 
   // ── Doctors ───────────────────────────────────────────────
   doctors: ()        => api.get('/doctors'),

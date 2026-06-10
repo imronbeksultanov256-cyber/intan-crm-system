@@ -11,7 +11,7 @@ exports.list = async (req, res) => {
          d.id, COALESCE(d.specialization, 'Врач-стоматолог') as specialization, 
          d.experience_years, d.photo_url, d.rating, d.cabinet
        FROM users u
-       LEFT JOIN doctors d ON d.user_id = u.id
+       JOIN doctors d ON d.user_id = u.id
        WHERE u.role_id = 2 AND u.is_active = TRUE
        ORDER BY u.last_name`
     );
@@ -142,24 +142,32 @@ exports.updateSchedule = async (req, res) => {
 exports.stats = async (req, res) => {
   const { id } = req.params;
   try {
+    // 1. Проверяем существование врача
+    const check = await query('SELECT id FROM doctors WHERE id = $1', [id]);
+    if (!check.rows.length) return res.status(404).json({ error: 'Врач не найден' });
+
+    // 2. Сводная статистика
     const stats = await query(
       `SELECT
          (SELECT COUNT(*) FROM appointments WHERE doctor_id = $1 AND status = 'completed') as total_completed,
          (SELECT COUNT(DISTINCT patient_id) FROM appointments WHERE doctor_id = $1) as unique_patients,
          (SELECT COALESCE(SUM(p.amount), 0) FROM payments p 
-          JOIN treatment_records tr ON tr.id = p.treatment_record_id 
-          WHERE tr.doctor_id = $1 AND p.status = 'paid') as total_revenue
+          LEFT JOIN treatment_records tr ON tr.id = p.treatment_record_id 
+          WHERE (tr.doctor_id = $1 OR p.received_by = (SELECT user_id FROM doctors WHERE id = $1)) 
+            AND p.status = 'paid') as total_revenue
       `,
       [id]
     );
 
+    // 3. Выручка по месяцам (последние 6 месяцев)
     const monthlyRevenue = await query(
       `SELECT 
-         TO_CHAR(p.paid_at, 'YYYY-MM') as month,
+         TO_CHAR(COALESCE(p.paid_at, p.created_at), 'YYYY-MM') as month,
          SUM(p.amount) as revenue
        FROM payments p
-       JOIN treatment_records tr ON tr.id = p.treatment_record_id
-       WHERE tr.doctor_id = $1 AND p.status = 'paid'
+       LEFT JOIN treatment_records tr ON tr.id = p.treatment_record_id
+       WHERE (tr.doctor_id = $1 OR p.received_by = (SELECT user_id FROM doctors WHERE id = $1))
+         AND p.status = 'paid'
        GROUP BY 1 ORDER BY 1 DESC LIMIT 6`,
       [id]
     );
@@ -170,6 +178,6 @@ exports.stats = async (req, res) => {
     });
   } catch (err) {
     console.error('[doctors.stats] ERROR:', err.message);
-    res.status(500).json({ error: 'Ошибка при получении статистики: ' + err.message });
+    res.status(500).json({ error: 'Ошибка при получении статистики врача: ' + err.message });
   }
 };

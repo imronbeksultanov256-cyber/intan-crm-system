@@ -105,6 +105,7 @@ window.navigate = function(pageId, params = null) {
 
   const titles = {
     dashboard:    'Дашборд',
+    leads:        'Заявки с сайта',
     appointments: 'Записи приёмов',
     patients:     'Пациенты',
     'patient-detail': 'Карточка пациента',

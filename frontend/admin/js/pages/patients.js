@@ -743,9 +743,8 @@ Pages.showDeletedPatients = async () => {
 };
 
 Pages.permanentDeletePatient = async (id, name) => {
-  if (!confirm(`Вы уверены, что хотите НАВСЕГДА удалить данные пациента ${name}? Это действие нельзя отменить.`)) return;
   try {
-    await api.del(`/patients/${id}/permanent`, { confirm_word: 'УДАЛИТЬ НАВСЕГДА' });
+    await api.del(`/patients/${id}/permanent`);
     UI.toast('Пациент удалён окончательно', 'success');
     UI.closeModal();
     Pages.loadPatients(document.getElementById('page-patients'));

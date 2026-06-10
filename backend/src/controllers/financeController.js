@@ -114,6 +114,79 @@ exports.createPayment = async (req, res) => {
   }
 };
 
+// ── GET /api/finance/export/pdf ───────────────────────────
+exports.exportPdf = async (req, res) => {
+  const PDFDocument = require('pdfkit');
+  const { from, to } = req.query;
+
+  try {
+    const rows = await query(
+      `SELECT p.paid_at, pt.last_name || ' ' || pt.first_name AS patient,
+              p.amount, p.payment_method,
+              u.last_name || ' ' || u.first_name AS received_by
+       FROM payments p
+       JOIN patients pt ON pt.id = p.patient_id
+       LEFT JOIN users u ON u.id = p.received_by
+       WHERE ($1::date IS NULL OR p.paid_at::date >= $1)
+         AND ($2::date IS NULL OR p.paid_at::date <= $2)
+       ORDER BY p.paid_at`,
+      [from || null, to || null]
+    );
+
+    const doc = new PDFDocument({ margin: 50, size: 'A4' });
+    
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename=finance_${from||'all'}.pdf`);
+    
+    doc.pipe(res);
+
+    // Header
+    doc.fontSize(20).text('Финансовый отчёт', { align: 'center' });
+    doc.fontSize(12).text(`Период: ${from || 'начало'} — ${to || 'сегодня'}`, { align: 'center' });
+    doc.moveDown();
+
+    // Table Header
+    const tableTop = 150;
+    doc.fontSize(10).font('Helvetica-Bold');
+    doc.text('Дата', 50, tableTop);
+    doc.text('Пациент', 150, tableTop);
+    doc.text('Сумма', 350, tableTop);
+    doc.text('Метод', 420, tableTop);
+    doc.text('Принял', 480, tableTop);
+    
+    doc.moveTo(50, tableTop + 15).lineTo(550, tableTop + 15).stroke();
+    
+    // Table Rows
+    let y = tableTop + 25;
+    let total = 0;
+    doc.font('Helvetica');
+    
+    rows.rows.forEach(r => {
+      if (y > 750) {
+        doc.addPage();
+        y = 50;
+      }
+      const date = new Date(r.paid_at).toLocaleDateString('ru-RU');
+      doc.text(date, 50, y);
+      doc.text(r.patient.substring(0, 30), 150, y);
+      doc.text(`${parseFloat(r.amount).toLocaleString('ru-RU')} сом`, 350, y);
+      doc.text(r.payment_method, 420, y);
+      doc.text((r.received_by || '').substring(0, 15), 480, y);
+      
+      total += parseFloat(r.amount);
+      y += 20;
+    });
+
+    doc.moveDown();
+    doc.font('Helvetica-Bold').text(`ИТОГО: ${total.toLocaleString('ru-RU')} сом`, 350, y + 10);
+
+    doc.end();
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Ошибка при создании PDF' });
+  }
+};
+
 // ── GET /api/finance/export/excel ─────────────────────────
 exports.exportExcel = async (req, res) => {
   const ExcelJS = require('exceljs');

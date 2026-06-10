@@ -6,49 +6,95 @@ Pages.loadDashboard = async (el) => {
   el.innerHTML = `
     <div class="page-header">
       <div>
-        <h1>Дашборд</h1>
-        <p>Сводка на сегодня — ${new Date().toLocaleDateString('ru-RU', { weekday:'long', day:'numeric', month:'long' })}</p>
+        <h1 style="font-size: 24px; font-weight: 700; color: var(--text-1)">Рабочий стол</h1>
+        <p style="color: var(--text-3); margin-top: 4px;">Сводка на ${new Date().toLocaleDateString('ru-RU', { weekday:'long', day:'numeric', month:'long' })}</p>
       </div>
       <button class="btn-secondary" onclick="Pages.loadDashboard(document.getElementById('page-dashboard'))">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-8.49"/></svg>
-        Обновить
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:8px"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-8.49"/></svg>
+        Обновить данные
       </button>
     </div>
+    
     <div id="dashboardContent">
-      <div class="stats-grid" id="statsGrid">
+      <!-- Top Stats -->
+      <div class="stats-grid" id="statsGrid" style="margin-bottom: 24px">
         ${[1,2,3,4].map(() => `<div class="stat-card">${UI.skeleton(1,1)}</div>`).join('')}
       </div>
       
-      <div class="card" style="margin-bottom:20px; border-left: 4px solid var(--c-warning)" id="requestsCard">
-        <div class="card__header" style="display:flex; justify-content: space-between">
-          <span class="card__title">🔔 Новые заявки с сайта</span>
-          <button class="btn-primary btn-xs" onclick="navigate('appointments', {status: 'requests'})">Все заявки</button>
-        </div>
-        <div class="card__body" id="requestsList">${UI.skeleton(3,2)}</div>
-      </div>
+      <div class="grid-2" style="gap: 24px; align-items: start;">
+        
+        <!-- Left Column -->
+        <div style="display: flex; flex-direction: column; gap: 24px">
+          
+          <!-- New Leads (Заявки с сайта) -->
+          <div class="card" style="border-top: 4px solid var(--c-primary)" id="requestsCard">
+            <div class="card__header" style="display:flex; justify-content: space-between; align-items: center">
+              <span class="card__title">📩 Новые заявки с сайта</span>
+              <button class="btn-ghost btn-xs" onclick="navigate('leads')">Все заявки →</button>
+            </div>
+            <div class="card__body" id="requestsList" style="padding: 16px">${UI.skeleton(3,2)}</div>
+          </div>
 
-      <div class="grid-2" style="margin-bottom:20px">
-        <div class="card" id="upcomingCard">
-          <div class="card__header"><span class="card__title">Записи на сегодня</span></div>
-          <div class="card__body">${UI.skeleton(5,3)}</div>
+          <!-- Upcoming Appointments -->
+          <div class="card" id="upcomingCard">
+            <div class="card__header" style="display:flex; justify-content: space-between; align-items: center">
+              <span class="card__title">📅 Сегодня на приёме</span>
+              <button class="btn-ghost btn-xs" onclick="navigate('appointments')">Календарь →</button>
+            </div>
+            <div class="card__body" style="padding: 16px">${UI.skeleton(5,3)}</div>
+          </div>
+
         </div>
-        <div class="card" id="activityCard">
-          <div class="card__header"><span class="card__title">Последние действия</span></div>
-          <div class="card__body">${UI.skeleton(5,2)}</div>
+
+        <!-- Right Column -->
+        <div style="display: flex; flex-direction: column; gap: 24px">
+          
+          <!-- Activity Feed -->
+          <div class="card" id="activityCard">
+            <div class="card__header"><span class="card__title">⚡ Последняя активность</span></div>
+            <div class="card__body" style="padding: 16px">${UI.skeleton(5,2)}</div>
+          </div>
+
+          <!-- Quick Actions -->
+          <div class="card">
+            <div class="card__header"><span class="card__title">🚀 Быстрые действия</span></div>
+            <div class="card__body" style="padding: 16px; display: grid; grid-template-columns: 1fr 1fr; gap: 12px">
+              <button class="btn-secondary" style="height: 80px; flex-direction: column; gap: 8px" onclick="navigate('patients')">
+                <span style="font-size: 20px">👥</span>
+                <span style="font-size: 12px">Пациенты</span>
+              </button>
+              <button class="btn-secondary" style="height: 80px; flex-direction: column; gap: 8px" onclick="navigate('appointments')">
+                <span style="font-size: 20px">📝</span>
+                <span style="font-size: 12px">Записать</span>
+              </button>
+              <button class="btn-secondary" style="height: 80px; flex-direction: column; gap: 8px" onclick="navigate('finance')">
+                <span style="font-size: 20px">💰</span>
+                <span style="font-size: 12px">Финансы</span>
+              </button>
+              <button class="btn-secondary" style="height: 80px; flex-direction: column; gap: 8px" onclick="navigate('inventory')">
+                <span style="font-size: 20px">📦</span>
+                <span style="font-size: 12px">Склад</span>
+              </button>
+            </div>
+          </div>
+
         </div>
       </div>
     </div>
   `;
 
   try {
-    const [data, reqs] = await Promise.all([
+    const [data, allLeads] = await Promise.all([
       api.dashboard(),
-      api.appointments('?status=pending&limit=5')
+      api.leads()
     ]);
     
     if (!data) return;
 
-    // Счётчики
+    // Filter only NEW leads
+    const newLeads = (allLeads || []).filter(l => l.status === 'new').slice(0, 5);
+
+    // 1. Counters
     const s = data.stats;
     const statsGrid = document.getElementById('statsGrid');
     if (statsGrid && s) {
@@ -63,97 +109,100 @@ Pages.loadDashboard = async (el) => {
           <div class="stat-card__icon">👤</div>
           <div class="stat-card__label">Новые пациенты</div>
           <div class="stat-card__value">${s.newPatientsToday || 0}</div>
-          <div class="stat-card__sub">за сегодня</div>
+          <div class="stat-card__sub">регистраций сегодня</div>
         </div>
         <div class="stat-card stat-card--amber">
           <div class="stat-card__icon">💰</div>
           <div class="stat-card__label">Выручка сегодня</div>
           <div class="stat-card__value">${UI.fmtMoney(s.todayRevenue || 0)}</div>
-          <div class="stat-card__sub">принято платежей</div>
+          <div class="stat-card__sub">подтверждённые оплаты</div>
         </div>
         <div class="stat-card stat-card--purple">
-          <div class="stat-card__icon">✅</div>
-          <div class="stat-card__label">Завершено приёмов</div>
-          <div class="stat-card__value">${s.todayCompleted || 0}</div>
-          <div class="stat-card__sub">из ${s.todayAppointments || 0} запланированных</div>
+          <div class="stat-card__icon">🔥</div>
+          <div class="stat-card__label">Новые заявки</div>
+          <div class="stat-card__value">${newLeads.length}</div>
+          <div class="stat-card__sub">ждут обработки</div>
         </div>
       `;
     }
 
-    // Заявки
+    // 2. New Leads List
     const reqList = document.getElementById('requestsList');
-    const onlineReqs = (reqs || []).filter(a => !a.appointment_dt);
     if (reqList) {
-      if (onlineReqs.length) {
+      if (newLeads.length) {
         reqList.innerHTML = `
-          <div style="display:flex; flex-direction:column; gap:10px">
-            ${onlineReqs.map(r => `
-              <div style="display:flex; align-items:center; justify-content: space-between; padding: 10px; background: var(--surface-2); border-radius: 8px">
+          <div style="display:flex; flex-direction:column; gap:8px">
+            ${newLeads.map(l => `
+              <div style="display:flex; align-items:center; justify-content: space-between; padding: 12px; background: var(--surface-2); border-radius: 12px; border: 1px solid var(--surface-3)">
                 <div>
-                  <div style="font-weight:600">${r.patient_name}</div>
-                  <div style="font-size:12px; color:var(--text-3)">${r.patient_phone} · ${UI.fmtDateTime(r.created_at)}</div>
+                  <div style="font-weight:600; font-size: 14px; color: var(--text-1)">${l.name}</div>
+                  <div style="font-size:12px; color:var(--text-3); margin-top: 2px">${l.phone} · ${UI.fmtDateTime(l.created_at)}</div>
                 </div>
-                <button class="btn-secondary btn-sm" onclick="navigate('appointments', {status: 'requests'})">Оформить</button>
+                <button class="btn-primary btn-sm" onclick="navigate('leads')">Связаться</button>
               </div>
             `).join('')}
           </div>
         `;
       } else {
-        reqList.innerHTML = UI.empty('📩', 'Новых заявок нет');
+        reqList.innerHTML = UI.empty('📩', 'Новых заявок нет', 'Все заявки с сайта обработаны');
       }
     }
 
-    // Предстоящие записи
+    // 3. Upcoming Appointments
     const upEl = document.getElementById('upcomingCard');
     if (upEl) {
       const upcoming = (data.upcoming || []).filter(a => a.appointment_dt);
       if (upcoming.length) {
         upEl.innerHTML = `
-          <div class="card__header"><span class="card__title">Предстоящие записи</span></div>
-          <div class="card__body">
+          <div class="card__header" style="display:flex; justify-content: space-between; align-items: center">
+            <span class="card__title">📅 Сегодня на приёме</span>
+            <button class="btn-ghost btn-xs" onclick="navigate('appointments')">Весь день →</button>
+          </div>
+          <div class="card__body" style="padding: 0">
             <div class="mini-calendar">
               ${upcoming.map(a => `
-                <div class="cal-slot cal-slot--${a.status}">
-                  <span class="cal-slot__time">${new Date(a.appointment_dt).toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'})}</span>
-                  <div>
-                    <div class="cal-slot__patient">${a.patient_name}</div>
-                    <div class="cal-slot__doctor">${a.doctor_name}</div>
+                <div class="cal-slot cal-slot--${a.status}" style="border: none; border-bottom: 1px solid var(--surface-3); padding: 12px 16px; border-radius: 0">
+                  <span class="cal-slot__time" style="font-weight: 700; color: var(--c-primary); width: 60px">${new Date(a.appointment_dt).toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'})}</span>
+                  <div style="flex: 1">
+                    <div class="cal-slot__patient" style="font-size: 14px; font-weight: 600">${a.patient_name}</div>
+                    <div class="cal-slot__doctor" style="font-size: 12px; color: var(--text-3)">${a.doctor_name}</div>
                   </div>
                   ${UI.badge(a.status)}
                 </div>
               `).join('')}
             </div>
           </div>
-          <div class="card__footer">
-            <button class="btn-ghost btn-sm" onclick="navigate('appointments')">Все записи →</button>
-          </div>
         `;
       } else {
         upEl.innerHTML = `
-          <div class="card__header"><span class="card__title">Предстоящие записи</span></div>
-          <div class="card__body">${UI.empty('📅','Нет записей на сегодня')}</div>
+          <div class="card__header"><span class="card__title">📅 Сегодня на приёме</span></div>
+          <div class="card__body" style="padding: 16px">${UI.empty('📅','Нет записей на сегодня','На сегодня приёмов не запланировано')}</div>
         `;
       }
     }
 
-    // Активность
+    // 4. Activity
     const actEl = document.getElementById('activityCard');
     if (actEl) {
       const actionLabels = {
         LOGIN: '🔐 Вход', LOGOUT: '🚪 Выход', CREATE_PATIENT: '👤 Новый пациент',
         UPDATE_PATIENT: '✏️ Обновление пациента', CREATE_APPOINTMENT: '📅 Новая запись',
-        UPDATE_SERVICE: '💲 Изменение прайса', DELETE_USER: '🗑 Удаление сотрудника'
+        UPDATE_SERVICE: '💲 Изменение прайса', DELETE_USER: '🗑 Удаление сотрудника',
+        soft_delete_patient: '🗑 В корзину', restore_patient: '♻️ Восстановление'
       };
       
       actEl.innerHTML = `
-        <div class="card__header"><span class="card__title">Последние действия</span></div>
-        <div class="card__body">
+        <div class="card__header"><span class="card__title">⚡ Последняя активность</span></div>
+        <div class="card__body" style="padding: 16px">
           ${data.recentActivity && data.recentActivity.length ? `
-            <div style="display:flex;flex-direction:column;gap:10px">
+            <div style="display:flex;flex-direction:column;gap:12px">
               ${data.recentActivity.map(a => `
-                <div style="display:flex;align-items:center;gap:10px;font-size:13px">
+                <div style="display:flex;align-items:center;gap:12px;font-size:13px">
+                  <div style="width: 32px; height: 32px; background: var(--surface-3); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 14px">
+                    ${(actionLabels[a.action] || '⚡').split(' ')[0]}
+                  </div>
                   <div style="flex:1">
-                    <div style="font-weight:500">${actionLabels[a.action] || a.action}</div>
+                    <div style="font-weight:600; color: var(--text-1)">${(actionLabels[a.action] || a.action).split(' ').slice(1).join(' ') || a.action}</div>
                     <div style="color:var(--text-3);font-size:11px">${a.user_name || 'Система'}</div>
                   </div>
                   <div style="color:var(--text-3);font-size:11px;white-space:nowrap">${UI.fmtDateTime(a.created_at)}</div>
@@ -165,7 +214,7 @@ Pages.loadDashboard = async (el) => {
       `;
     }
   } catch (err) {
-     console.error(err);
+     console.error('[Dashboard Error]', err);
   }
 };
 

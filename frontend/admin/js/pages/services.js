@@ -3,12 +3,12 @@ Pages.loadServices = async (el) => {
 
   el.innerHTML = `
     <div class="page-header">
-      <div><h1>Процедуры и прайс</h1></div>
+      <div><h1>Прайс-лист услуг</h1></div>
       <div style="display:flex;gap:10px">
-        <a class="btn-secondary btn-sm" href="/api/services/export/pdf" target="_blank">
+        <button class="btn-secondary btn-sm" onclick="Pages.exportServicesPdf()">
           📄 Экспорт PDF
-        </a>
-        ${isChief ? `<button class="btn-primary" onclick="Pages.showAddServiceModal()">+ Добавить процедуру</button>` : ''}
+        </button>
+        <button class="btn-primary" onclick="Pages.showAddServiceModal()">+ Добавить услугу</button>
       </div>
     </div>
     <div class="toolbar">
@@ -188,6 +188,21 @@ Pages.showEditServiceModal = (id, name, price, duration, description, categoryId
       UI.toast(err.message, 'error');
     }
   });
+};
+
+Pages.exportServicesPdf = () => {
+  const token = api.getToken();
+  const url = `${api.baseUrl}/services/export/pdf`;
+  
+  fetch(url, { headers: { Authorization: `Bearer ${token}` } })
+    .then(r => r.blob())
+    .then(blob => {
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `price_list.pdf`;
+      a.click();
+    })
+    .catch(() => UI.toast('Ошибка экспорта PDF', 'error'));
 };
 
 Pages.deleteService = async (id) => {

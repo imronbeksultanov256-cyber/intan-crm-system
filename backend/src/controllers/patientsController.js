@@ -515,21 +515,19 @@ exports.restore = async (req, res) => {
 // ══════════════════════════════════════════════════════════
 exports.permanentDelete = async (req, res) => {
   const { id } = req.params;
-  const { confirm_word } = req.body;
   if (req.user?.role !== 'chief_doctor') {
     return res.status(403).json({ error: 'Только главный врач может окончательно удалить пациента' });
-  }
-  if (confirm_word !== 'УДАЛИТЬ НАВСЕГДА') {
-    return res.status(400).json({ error: 'Введите УДАЛИТЬ НАВСЕГДА для подтверждения' });
   }
   try {
     const patient = await query('SELECT * FROM patients WHERE id=$1 AND is_deleted=TRUE', [id]);
     if (!patient.rows[0]) return res.status(404).json({ error: 'Пациент не найден в корзине' });
+    
     await query(
       `INSERT INTO activity_log (user_id,action,entity_type,entity_id,old_values)
        VALUES ($1,'PERMANENT_DELETE_PATIENT','patient',$2,$3)`,
       [req.user.id, id, JSON.stringify(patient.rows[0])]
     ).catch(()=>{});
+
     await query('DELETE FROM patients WHERE id=$1', [id]);
     res.json({ success: true, message: 'Пациент окончательно удалён' });
   } catch (err) {

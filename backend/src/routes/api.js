@@ -142,42 +142,62 @@ router.patch('/appointments/:id/status',
 // ── PUBLIC — Online booking (no auth) ─────────────────────
 // Клиент оставляет заявку. Врач и время НЕ обязательны.
 router.post('/book', async (req, res) => {
-  const { patient_name, phone, doctor_id, service_id, appointment_dt, comment } = req.body;
+  const { patient_name, phone, email, doctor_id, service_id, appointment_dt, comment } = req.body;
 
   if (!patient_name || !phone) {
     return res.status(400).json({ error: 'Имя и телефон обязательны' });
   }
 
   try {
-    // 1. Найти или создать пациента
-    let patient = (await query(
-      'SELECT id FROM patients WHERE phone = $1 LIMIT 1', [phone]
-    )).rows[0];
-
-    if (!patient) {
-      const nameParts = patient_name.trim().split(' ');
-      const result = await query(
-        `INSERT INTO patients (last_name, first_name, middle_name, phone)
-         VALUES ($1,$2,$3,$4) RETURNING id`,
-        [nameParts[0] || '', nameParts[1] || '', nameParts[2] || null, phone]
-      );
-      patient = result.rows[0];
-    }
-
-    // 2. Создаём запись как ЗАЯВКУ (appointment_dt может быть NULL)
-    // Если дата передана — используем её, если нет — оставляем пустой
-    const appt = await query(
-      `INSERT INTO appointments
-         (patient_id, doctor_id, service_id, appointment_dt, comment, source, status)
-       VALUES ($1,$2,$3,$4,$5,'online','pending') RETURNING id, appointment_dt`,
-      [patient.id, doctor_id || null, service_id || null, appointment_dt || null, comment || null]
+    // Теперь просто сохраняем в таблицу leads, не создавая пациента сразу
+    const lead = await query(
+      `INSERT INTO leads
+         (name, phone, email, doctor_id, service_id, preferred_dt, comment, status)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, 'new') RETURNING id`,
+      [patient_name, phone, email || null, doctor_id || null, service_id || null, appointment_dt || null, comment || null]
     );
 
-    res.status(201).json({ success: true, appointment: appt.rows[0] });
+    res.status(201).json({ success: true, lead: lead.rows[0] });
 
   } catch (err) {
     console.error('[/book] ERROR:', err.message);
     res.status(500).json({ error: 'Ошибка при отправке заявки. Попробуйте позвонить нам.' });
+  }
+});
+
+// ── LEADS / ЗАЯВКИ ─────────────────────────────────────────
+router.get('/leads', authenticate, async (req, res) => {
+  try {
+    const result = await query(
+      `SELECT l.*, s.name as service_name, u.last_name || ' ' || u.first_name as doctor_name
+       FROM leads l
+       LEFT JOIN services s ON s.id = l.service_id
+       LEFT JOIN doctors d ON d.id = l.doctor_id
+       LEFT JOIN users u ON u.id = d.user_id
+       ORDER BY l.created_at DESC`
+    );
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ error: 'Ошибка при загрузке заявок' });
+  }
+});
+
+router.patch('/leads/:id/status', authenticate, async (req, res) => {
+  const { status } = req.body;
+  try {
+    await query('UPDATE leads SET status = $1, updated_at = NOW() WHERE id = $2', [status, req.params.id]);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Ошибка при обновлении статуса' });
+  }
+});
+
+router.delete('/leads/:id', authenticate, authorize('patients:delete'), async (req, res) => {
+  try {
+    await query('DELETE FROM leads WHERE id = $1', [req.params.id]);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Ошибка при удалении заявки' });
   }
 });
 
@@ -229,6 +249,10 @@ router.post('/finance/payments',
 router.get('/finance/export/excel',
   authenticate, requireRole('chief_doctor'),
   financeCtrl.exportExcel);
+
+router.get('/finance/export/pdf',
+  authenticate, requireRole('chief_doctor'),
+  financeCtrl.exportPdf);
 
 // ── INVENTORY / СКЛАД ──────────────────────────────────────
 router.get('/inventory',

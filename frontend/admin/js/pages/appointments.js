@@ -11,14 +11,14 @@ Pages.loadAppointments = async (el) => {
 
     <!-- Счётчики статусов -->
     <div id="apptCounters" style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px">
-      ${['requests','pending','confirmed','in_progress','completed','cancelled'].map(s => `
+      ${['pending','confirmed','in_progress','completed','cancelled'].map(s => `
         <div class="appt-counter" data-status="${s}" onclick="Pages.filterByStatus('${s}')" style="
           background:var(--surface);border:1px solid var(--border);border-radius:10px;
           padding:10px 16px;cursor:pointer;transition:all 0.18s;min-width:110px;text-align:center;
         ">
           <div class="appt-counter__num" id="cnt-${s}" style="font-size:1.4rem;font-weight:700">—</div>
           <div style="font-size:11px;color:var(--text-3);margin-top:2px">${{
-            requests:'Заявки (новые)', pending:'Ожидают', confirmed:'Подтверждены',
+            pending:'Ожидают', confirmed:'Подтверждены',
             in_progress:'На приёме', completed:'Завершены', cancelled:'Отменены'
           }[s]}</div>
         </div>
@@ -289,11 +289,9 @@ Pages._loadCounters = async () => {
     const all = await api.appointments('?');
     if (!all?.length) return;
 
-    const counts = { requests:0, pending:0, confirmed:0, in_progress:0, completed:0, cancelled:0 };
+    const counts = { pending:0, confirmed:0, in_progress:0, completed:0, cancelled:0 };
     all.forEach(a => { 
-      if (a.source === 'online' && a.status === 'pending' && !a.appointment_dt) {
-        counts.requests++;
-      } else if (counts[a.status] !== undefined) {
+       if (counts[a.status] !== undefined) {
         counts[a.status]++; 
       }
     });

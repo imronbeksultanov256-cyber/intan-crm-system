@@ -9,7 +9,8 @@ Pages.loadFinance = async (el) => {
     <div class="page-header">
       <div><h1>Финансы и аналитика</h1></div>
       <div style="display:flex;gap:10px">
-        <button class="btn-secondary btn-sm" onclick="Pages.exportFinanceExcel()">📊 Экспорт Excel</button>
+        <button class="btn-secondary btn-sm" onclick="Pages.exportFinanceExcel()">📊 Excel</button>
+        <button class="btn-secondary btn-sm" onclick="Pages.exportFinancePdf()">📄 PDF</button>
         <button class="btn-primary btn-sm" onclick="Pages.showAddPaymentModal()">+ Платёж</button>
       </div>
     </div>
@@ -289,10 +290,10 @@ Pages.exportFinanceExcel = () => {
   const from = document.getElementById('payFromDate')?.value || '';
   const to   = document.getElementById('payToDate')?.value   || '';
   const token = api.getToken();
-  let url = '/api/finance/export/excel?';
+  let url = `${api.baseUrl}/finance/export/excel?`;
   if (from) url += `from=${from}&`;
   if (to)   url += `to=${to}`;
-  // Open in new tab with auth header via fetch
+  
   fetch(url, { headers: { Authorization: `Bearer ${token}` } })
     .then(r => r.blob())
     .then(blob => {
@@ -302,4 +303,23 @@ Pages.exportFinanceExcel = () => {
       a.click();
     })
     .catch(() => UI.toast('Ошибка экспорта', 'error'));
+};
+
+Pages.exportFinancePdf = () => {
+  const from = document.getElementById('payFromDate')?.value || '';
+  const to   = document.getElementById('payToDate')?.value   || '';
+  const token = api.getToken();
+  let url = `${api.baseUrl}/finance/export/pdf?`;
+  if (from) url += `from=${from}&`;
+  if (to)   url += `to=${to}`;
+  
+  fetch(url, { headers: { Authorization: `Bearer ${token}` } })
+    .then(r => r.blob())
+    .then(blob => {
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `finance_${from||'all'}.pdf`;
+      a.click();
+    })
+    .catch(() => UI.toast('Ошибка экспорта PDF', 'error'));
 };
