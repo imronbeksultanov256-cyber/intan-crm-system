@@ -83,15 +83,15 @@ Pages.showDoctorDetail = async (id) => {
         <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px">
            <div class="card" style="padding:12px;text-align:center;background:var(--surface-2)">
               <div style="font-size:10px;color:var(--text-3);text-transform:uppercase">Пациентов</div>
-              <div style="font-size:1.2rem;font-weight:800;color:var(--c-primary)">${stats.summary.unique_patients}</div>
+              <div style="font-size:1.2rem;font-weight:800;color:var(--c-primary)">${stats?.summary?.unique_patients || 0}</div>
            </div>
            <div class="card" style="padding:12px;text-align:center;background:var(--surface-2)">
               <div style="font-size:10px;color:var(--text-3);text-transform:uppercase">Приёмов</div>
-              <div style="font-size:1.2rem;font-weight:800;color:var(--c-success)">${stats.summary.total_completed}</div>
+              <div style="font-size:1.2rem;font-weight:800;color:var(--c-success)">${stats?.summary?.total_completed || 0}</div>
            </div>
            <div class="card" style="padding:12px;text-align:center;background:var(--surface-2)">
               <div style="font-size:10px;color:var(--text-3);text-transform:uppercase">Выручка</div>
-              <div style="font-size:1.2rem;font-weight:800;color:var(--c-primary)">${UI.fmtMoney(stats.summary.total_revenue)}</div>
+              <div style="font-size:1.2rem;font-weight:800;color:var(--c-primary)">${UI.fmtMoney(stats?.summary?.total_revenue || 0)}</div>
            </div>
         </div>
 

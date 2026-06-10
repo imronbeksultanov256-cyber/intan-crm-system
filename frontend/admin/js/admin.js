@@ -93,7 +93,7 @@ const App = {
 };
 
 // ── ГЛОБАЛЬНАЯ НАВИГАЦИЯ ───────────────────────────────────
-window.navigate = function(pageId) {
+window.navigate = function(pageId, params = null) {
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   const target = document.getElementById(`page-${pageId}`);
   if (target) target.classList.add('active');
@@ -107,6 +107,7 @@ window.navigate = function(pageId) {
     dashboard:    'Дашборд',
     appointments: 'Записи приёмов',
     patients:     'Пациенты',
+    'patient-detail': 'Карточка пациента',
     doctors:      'Врачебный состав',
     services:     'Прайс-лист услуг',
     finance:      'Финансовая аналитика',
@@ -117,9 +118,9 @@ window.navigate = function(pageId) {
   if (titleEl) titleEl.textContent = titles[pageId] || 'Панель управления';
 
   const container    = document.getElementById(`page-${pageId}`);
-  const functionName = 'load' + pageId.charAt(0).toUpperCase() + pageId.slice(1);
+  const functionName = 'load' + pageId.split('-').map(p => p.charAt(0).toUpperCase() + p.slice(1)).join('');
   if (container && window.Pages && typeof window.Pages[functionName] === 'function') {
-    window.Pages[functionName](container);
+    window.Pages[functionName](container, params);
   }
 };
 

@@ -133,7 +133,8 @@ exports.updateStatus = async (req, res) => {
     if (!result.rows[0]) return res.status(404).json({ error: 'Запись не найдена' });
     res.json(result.rows[0]);
   } catch (err) {
-    res.status(500).json({ error: 'Ошибка при обновлении статуса' });
+    console.error('[appointments.updateStatus] ERROR:', err.message);
+    res.status(500).json({ error: 'Ошибка при обновлении статуса: ' + err.message });
   }
 };
 

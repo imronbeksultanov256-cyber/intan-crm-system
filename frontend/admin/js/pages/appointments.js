@@ -55,6 +55,7 @@ Pages.loadAppointments = async (el) => {
         <option value="cancelled">Отменено</option>
         <option value="no_show">Не пришёл</option>
       </select>
+      <button class="btn-secondary btn-sm" onclick="Pages._apptShowAll()">📅 Все записи</button>
       <button class="btn-ghost btn-sm" onclick="Pages._apptLoad()">🔄 Обновить</button>
     </div>
 
@@ -141,6 +142,13 @@ Pages._renderWeek = () => {
 Pages._selectDay = (iso) => {
   Pages._apptSelectedDate = iso;
   document.getElementById('apptDateFilter').value = iso;
+  Pages._renderWeek();
+  Pages._apptLoad();
+};
+
+Pages._apptShowAll = () => {
+  document.getElementById('apptDateFilter').value = '';
+  Pages._apptSelectedDate = '';
   Pages._renderWeek();
   Pages._apptLoad();
 };
@@ -264,7 +272,7 @@ Pages._renderAppointments = (rows) => {
                         onclick="Pages.changeApptStatus('${a.id}','no_show')">👻</button>
                     ` : ''}
                     <button class="btn-icon" title="Карточка пациента"
-                      onclick="window.navigate('patient-detail');currentPatientId='${a.patient_id}'">👤</button>
+                      onclick="window.navigate('patient-detail', {patientId: '${a.patient_id}'})">👤</button>
                   </div>
                 </td>
               </tr>

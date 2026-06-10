@@ -138,7 +138,7 @@ exports.stats = async (req, res) => {
       `SELECT
          (SELECT COUNT(*) FROM appointments WHERE doctor_id = $1 AND status = 'completed') as total_completed,
          (SELECT COUNT(DISTINCT patient_id) FROM appointments WHERE doctor_id = $1) as unique_patients,
-         (SELECT COALESCE(SUM(amount), 0) FROM payments p 
+         (SELECT COALESCE(SUM(p.amount), 0) FROM payments p 
           JOIN treatment_records tr ON tr.id = p.treatment_record_id 
           WHERE tr.doctor_id = $1 AND p.status = 'paid') as total_revenue
       `,
@@ -157,11 +157,11 @@ exports.stats = async (req, res) => {
     );
 
     res.json({
-      summary: stats.rows[0],
-      monthlyRevenue: monthlyRevenue.rows
+      summary: stats.rows[0] || { total_completed: 0, unique_patients: 0, total_revenue: 0 },
+      monthlyRevenue: monthlyRevenue.rows || []
     });
   } catch (err) {
-    console.error('[doctors.stats]', err.message);
-    res.status(500).json({ error: 'Ошибка при получении статистики' });
+    console.error('[doctors.stats] ERROR:', err.message);
+    res.status(500).json({ error: 'Ошибка при получении статистики: ' + err.message });
   }
 };
