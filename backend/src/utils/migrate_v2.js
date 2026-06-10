@@ -150,4 +150,8 @@ async function migrate() {
   }
 }
 
+<<<<<<< HEAD
 migrate();
+=======
+migrate();
+>>>>>>> origin/main
