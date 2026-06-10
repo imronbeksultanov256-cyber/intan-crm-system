@@ -1,4 +1,4 @@
-// ── API CLIENT ─────────────────────────────────────────────
+// ── API CLIENT v2 ──────────────────────────────────────────
 const API_BASE = 'https://intan-backend.onrender.com/api';
 
 const api = {
@@ -37,27 +37,18 @@ const api = {
       throw new Error('Нет связи с сервером. Проверьте интернет.');
     }
 
-    // 429 — rate limit
-    if (res.status === 429) {
-      throw new Error('Слишком много запросов. Подождите минуту.');
-    }
+    if (res.status === 429) throw new Error('Слишком много запросов. Подождите минуту.');
 
-    // 401 — только НЕ для логина и НЕ для refresh
     if (res.status === 401 && !opts.noRefresh && path !== '/auth/login') {
       this.setToken(null);
-      localStorage.removeItem('access_token');
       localStorage.removeItem('refresh_token');
       if (typeof App !== 'undefined') App.showAuth();
       return null;
     }
 
-    // Любая ошибка — бросаем с текстом от сервера
     if (!res.ok) {
       let msg = `HTTP ${res.status}`;
-      try {
-        const body = await res.json();
-        msg = body.error || body.message || msg;
-      } catch (_) {}
+      try { const b = await res.json(); msg = b.error || b.message || msg; } catch (_) {}
       throw new Error(msg);
     }
 
@@ -66,53 +57,74 @@ const api = {
     return res;
   },
 
-  // ── Shortcuts ────────────────────────────────────────────
-  get:    (path)       => api.request('GET',    path),
+  // ── Shortcuts ─────────────────────────────────────────────
+  get:    (path)             => api.request('GET',    path),
   post:   (path, body, opts) => api.request('POST',   path, body, opts),
-  put:    (path, body) => api.request('PUT',    path, body),
-  patch:  (path, body) => api.request('PATCH',  path, body),
-  del:    (path)       => api.request('DELETE', path),
-  upload: (path, fd)   => api.request('POST',   path, fd),
+  put:    (path, body)       => api.request('PUT',    path, body),
+  patch:  (path, body)       => api.request('PATCH',  path, body),
+  del:    (path, body)       => api.request('DELETE', path, body),
+  upload: (path, fd)         => api.request('POST',   path, fd),
 
-  // ── Auth ─────────────────────────────────────────────────
+  // ── Auth ──────────────────────────────────────────────────
   login:  (email, password) => api.post('/auth/login', { email, password }),
   me:     ()                => api.get('/auth/me'),
   logout: ()                => api.post('/auth/logout', null, { noRefresh: true }),
 
-  // ── Dashboard ────────────────────────────────────────────
+  // ── Dashboard ─────────────────────────────────────────────
   dashboard: () => api.get('/dashboard'),
 
-  // ── Patients ─────────────────────────────────────────────
-  patients:      (p = '') => api.get(`/patients${p}`),
-  patient:       (id)     => api.get(`/patients/${id}`),
-  createPatient: (body)   => api.post('/patients', body),
-  updatePatient: (id, b)  => api.put(`/patients/${id}`, b),
+  // ── Patients ──────────────────────────────────────────────
+  patients:      (p = '')       => api.get(`/patients${p}`),
+  patient:       (id)           => api.get(`/patients/${id}`),
+  createPatient: (body)         => api.post('/patients', body),
+  updatePatient: (id, body)     => api.put(`/patients/${id}`, body),
+  deletePatient: (id, body)     => api.del(`/patients/${id}`, body),
+  restorePatient:(id)           => api.post(`/patients/${id}/restore`),
 
-  // ── Appointments ─────────────────────────────────────────
+  // ── Анамнез ───────────────────────────────────────────────
+  getAnamnesis:  (patientId)    => api.get(`/patients/${patientId}/anamnesis`),
+  saveAnamnesis: (patientId, b) => api.put(`/patients/${patientId}/anamnesis`, b),
+
+  // ── Зубная формула ────────────────────────────────────────
+  getDentalChart:   (patientId)        => api.get(`/patients/${patientId}/dental-chart`),
+  updateTooth:      (patientId, body)  => api.put(`/patients/${patientId}/dental-chart`, body),
+  getToothHistory:  (patientId, tooth) => api.get(`/patients/${patientId}/tooth/${tooth}/history`),
+
+  // ── Планы лечения ─────────────────────────────────────────
+  getTreatmentPlans:  (patientId)          => api.get(`/patients/${patientId}/treatment-plans`),
+  createTreatmentPlan:(patientId, body)    => api.post(`/patients/${patientId}/treatment-plan`, body),
+  completePlanItem:   (patientId, planId, itemId) =>
+    api.patch(`/patients/${patientId}/treatment-plan/${planId}/item/${itemId}`,
+              { status: 'completed', completed_date: new Date().toISOString().split('T')[0] }),
+
+  // ── Файлы ─────────────────────────────────────────────────
+  uploadFile: (patientId, fd) => api.upload(`/patients/${patientId}/files`, fd),
+
+  // ── Appointments ──────────────────────────────────────────
   appointments:     (p = '') => api.get(`/appointments${p}`),
   createAppt:       (body)   => api.post('/appointments', body),
   updateApptStatus: (id, s)  => api.patch(`/appointments/${id}/status`, { status: s }),
   slots: (dId, date)         => api.get(`/appointments/slots?doctorId=${dId}&date=${date}`),
 
-  // ── Services ─────────────────────────────────────────────
+  // ── Services ──────────────────────────────────────────────
   services:      (p = '') => api.get(`/services${p}`),
   createService: (body)   => api.post('/services', body),
   updateService: (id, b)  => api.put(`/services/${id}`, b),
   deleteService: (id)     => api.del(`/services/${id}`),
 
-  // ── Finance ──────────────────────────────────────────────
+  // ── Finance ───────────────────────────────────────────────
   financeDashboard: ()       => api.get('/finance/dashboard'),
   payments:         (p = '') => api.get(`/finance/payments${p}`),
   createPayment:    (body)   => api.post('/finance/payments', body),
 
-  // ── Doctors ──────────────────────────────────────────────
+  // ── Doctors ───────────────────────────────────────────────
   doctors: ()   => api.get('/doctors'),
   doctor:  (id) => api.get(`/doctors/${id}`),
 
-  // ── Users ────────────────────────────────────────────────
+  // ── Users ─────────────────────────────────────────────────
   users:      ()     => api.get('/users'),
   createUser: (body) => api.post('/users', body),
 
-  // ── Logs ─────────────────────────────────────────────────
+  // ── Logs ──────────────────────────────────────────────────
   logs: () => api.get('/logs'),
 };
