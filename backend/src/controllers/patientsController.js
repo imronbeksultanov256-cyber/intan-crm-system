@@ -522,16 +522,32 @@ exports.permanentDelete = async (req, res) => {
     const patient = await query('SELECT * FROM patients WHERE id=$1 AND is_deleted=TRUE', [id]);
     if (!patient.rows[0]) return res.status(404).json({ error: 'Пациент не найден в корзине' });
     
+    await query('BEGIN');
+
+    // 1. Удаляем связанные данные, у которых нет ON DELETE CASCADE
+    // Порядок важен из-за FK между самими таблицами (например, payments -> treatment_records)
+    await query('DELETE FROM payments WHERE patient_id = $1', [id]);
+    await query('DELETE FROM reminders WHERE patient_id = $1', [id]);
+    
+    // treatment_services удалятся каскадом при удалении treatment_records
+    await query('DELETE FROM treatment_records WHERE patient_id = $1', [id]);
+    await query('DELETE FROM appointments WHERE patient_id = $1', [id]);
+
+    // 2. Лог
     await query(
       `INSERT INTO activity_log (user_id,action,entity_type,entity_id,old_values)
        VALUES ($1,'PERMANENT_DELETE_PATIENT','patient',$2,$3)`,
       [req.user.id, id, JSON.stringify(patient.rows[0])]
     ).catch(()=>{});
 
+    // 3. Удаляем самого пациента (остальные таблицы типа dental_chart удалятся каскадом)
     await query('DELETE FROM patients WHERE id=$1', [id]);
+    
+    await query('COMMIT');
     res.json({ success: true, message: 'Пациент окончательно удалён' });
   } catch (err) {
+    await query('ROLLBACK');
     console.error('[patients.permanentDelete]', err.message);
-    res.status(500).json({ error: 'Ошибка при удалении' });
+    res.status(500).json({ error: 'Ошибка при удалении: ' + err.message });
   }
 };

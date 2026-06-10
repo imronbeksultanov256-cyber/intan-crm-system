@@ -84,12 +84,34 @@ Pages.loadDashboard = async (el) => {
   `;
 
   try {
-    const [data, allLeads] = await Promise.all([
-      api.dashboard(),
-      api.leads()
-    ]);
+    let allLeads = [];
+    let data = null;
+
+    try {
+      const results = await Promise.allSettled([
+        api.dashboard(),
+        api.leads()
+      ]);
+      
+      if (results[0].status === 'fulfilled') {
+        data = results[0].value;
+      } else {
+        console.warn('[Dashboard] Dashboard stats failed', results[0].reason);
+      }
+
+      if (results[1].status === 'fulfilled') {
+        allLeads = results[1].value;
+      } else {
+        console.warn('[Dashboard] Leads failed', results[1].reason);
+      }
+    } catch (err) {
+      console.error('[Dashboard Error]', err);
+    }
     
-    if (!data) return;
+    if (!data) {
+       document.getElementById('dashboardContent').innerHTML = UI.empty('⚠️', 'Ошибка загрузки данных', 'Не удалось получить статистику с сервера');
+       return;
+    }
 
     // Filter only NEW leads
     const newLeads = (allLeads || []).filter(l => l.status === 'new').slice(0, 5);

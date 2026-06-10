@@ -142,9 +142,18 @@ router.patch('/appointments/:id/status',
 // ── PUBLIC — Online booking (no auth) ─────────────────────
 // Клиент оставляет заявку. Врач и время НЕ обязательны.
 router.post('/book', async (req, res) => {
-  const { patient_name, phone, email, doctor_id, service_id, appointment_dt, comment } = req.body;
+  console.log('[BOOK] Request body:', JSON.stringify(req.body));
+  
+  const name    = req.body.patient_name || req.body.name || req.body.fullname || req.body.userName;
+  const phone   = req.body.phone || req.body.telephone || req.body.userPhone;
+  const email   = req.body.email;
+  const docId   = req.body.doctor_id || req.body.doctorId;
+  const svcId   = req.body.service_id || req.body.serviceId;
+  const dt      = req.body.appointment_dt || req.body.preferred_dt || req.body.date || req.body.datetime;
+  const comment = req.body.comment || req.body.message || req.body.notes;
 
-  if (!patient_name || !phone) {
+  if (!name || !phone) {
+    console.warn('[BOOK] Missing name or phone');
     return res.status(400).json({ error: 'Имя и телефон обязательны' });
   }
 
@@ -154,13 +163,46 @@ router.post('/book', async (req, res) => {
       `INSERT INTO leads
          (name, phone, email, doctor_id, service_id, preferred_dt, comment, status)
        VALUES ($1, $2, $3, $4, $5, $6, $7, 'new') RETURNING id`,
-      [patient_name, phone, email || null, doctor_id || null, service_id || null, appointment_dt || null, comment || null]
+      [name, phone, email || null, docId || null, svcId || null, dt || null, comment || null]
     );
 
+    console.log('[BOOK] Lead created:', lead.rows[0].id);
     res.status(201).json({ success: true, lead: lead.rows[0] });
 
   } catch (err) {
-    console.error('[/book] ERROR:', err.message);
+    console.error('[BOOK] ERROR:', err.message);
+    // Если таблицы нет, попробуем создать её "на лету" (только один раз)
+    if (err.message.includes('leads') && err.message.includes('does not exist')) {
+       console.info('[BOOK] Attempting to auto-create leads table...');
+       try {
+         await query(`
+           CREATE TABLE IF NOT EXISTS leads (
+             id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+             name        VARCHAR(255) NOT NULL,
+             phone       VARCHAR(30) NOT NULL,
+             email       VARCHAR(255),
+             service_id  UUID REFERENCES services(id),
+             doctor_id   UUID REFERENCES doctors(id),
+             preferred_dt TIMESTAMP,
+             comment     TEXT,
+             status      VARCHAR(30) DEFAULT 'new' CHECK (status IN ('new', 'processed', 'cancelled')),
+             created_at  TIMESTAMP DEFAULT NOW(),
+             updated_at  TIMESTAMP DEFAULT NOW()
+           );
+           CREATE INDEX IF NOT EXISTS idx_leads_status ON leads(status);
+         `);
+         // Пробуем еще раз
+         const retry = await query(
+           `INSERT INTO leads
+              (name, phone, email, doctor_id, service_id, preferred_dt, comment, status)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, 'new') RETURNING id`,
+           [name, phone, email || null, docId || null, svcId || null, dt || null, comment || null]
+         );
+         return res.status(201).json({ success: true, lead: retry.rows[0] });
+       } catch (e2) {
+         console.error('[BOOK] Auto-create failed:', e2.message);
+       }
+    }
     res.status(500).json({ error: 'Ошибка при отправке заявки. Попробуйте позвонить нам.' });
   }
 });
@@ -178,6 +220,30 @@ router.get('/leads', authenticate, async (req, res) => {
     );
     res.json(result.rows);
   } catch (err) {
+    if (err.message.includes('leads') && err.message.includes('does not exist')) {
+       try {
+         await query(`
+           CREATE TABLE IF NOT EXISTS leads (
+             id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+             name        VARCHAR(255) NOT NULL,
+             phone       VARCHAR(30) NOT NULL,
+             email       VARCHAR(255),
+             service_id  UUID REFERENCES services(id),
+             doctor_id   UUID REFERENCES doctors(id),
+             preferred_dt TIMESTAMP,
+             comment     TEXT,
+             status      VARCHAR(30) DEFAULT 'new' CHECK (status IN ('new', 'processed', 'cancelled')),
+             created_at  TIMESTAMP DEFAULT NOW(),
+             updated_at  TIMESTAMP DEFAULT NOW()
+           );
+           CREATE INDEX IF NOT EXISTS idx_leads_status ON leads(status);
+         `);
+         return res.json([]); // Возвращаем пустой список, так как таблица только что создана
+       } catch (e2) {
+         console.error('[LEADS] Auto-create failed:', e2.message);
+       }
+    }
+    console.error('[LEADS] GET error:', err.message);
     res.status(500).json({ error: 'Ошибка при загрузке заявок' });
   }
 });
