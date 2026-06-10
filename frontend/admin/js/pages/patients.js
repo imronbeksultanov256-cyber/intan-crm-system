@@ -699,10 +699,10 @@ Pages.softDeletePatient = (id, name) => {
 Pages.confirmSoftDelete = async (id) => {
   const confirm_word = document.getElementById('deleteConfirmWord')?.value?.trim();
   const reason       = document.getElementById('deleteReason')?.value?.trim();
-  if (confirm_word !== 'УДАЛИТЬ') { UI.toast('Введите слово УДАЛИТЬ', 'error'); return; }
+  if (!confirm_word || confirm_word.toUpperCase() !== 'УДАЛИТЬ') { UI.toast('Введите слово УДАЛИТЬ', 'error'); return; }
   if (!reason || reason.length < 5) { UI.toast('Укажите причину удаления', 'error'); return; }
   try {
-    await api.deletePatient(id, { confirm_word, reason });
+    await api.deletePatient(id, { confirm_word: 'УДАЛИТЬ', reason });
     UI.closeModal();
     UI.toast('Пациент перемещён в корзину', 'success');
     navigate('patients');

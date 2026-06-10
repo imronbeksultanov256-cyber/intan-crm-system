@@ -235,7 +235,7 @@ Pages.loadUsers = async (el) => {
       <div class="data-table-wrap">
         <table class="data-table">
           <thead><tr>
-            <th>Сотрудник</th><th>Email</th><th>Роль</th><th>Телефон</th><th>Последний вход</th><th>Статус</th>
+            <th>Сотрудник</th><th>Email</th><th>Роль</th><th>Телефон</th><th>Статус</th><th style="text-align:right">Действия</th>
           </tr></thead>
           <tbody>
             ${users.map(u => `
@@ -245,17 +245,24 @@ Pages.loadUsers = async (el) => {
                     <div class="user-card__avatar" style="width:32px;height:32px;font-size:11px">
                       ${UI.initials(u.last_name + ' ' + u.first_name)}
                     </div>
-                    <span>${u.last_name} ${u.first_name}</span>
+                    <div style="display:flex;flex-direction:column">
+                      <span style="font-weight:600">${u.last_name} ${u.first_name}</span>
+                      <span style="font-size:10px;color:var(--text-3)">Вход: ${UI.fmtDateTime(u.last_login)}</span>
+                    </div>
                   </div>
                 </td>
                 <td style="color:var(--text-2)">${u.email}</td>
                 <td>${UI.badge(u.role)}</td>
                 <td style="color:var(--text-3)">${u.phone || '—'}</td>
-                <td style="color:var(--text-3)">${UI.fmtDateTime(u.last_login)}</td>
                 <td>
                   <span class="badge ${u.is_active ? 'badge--confirmed' : 'badge--cancelled'}">
                     ${u.is_active ? 'Активен' : 'Отключён'}
                   </span>
+                </td>
+                <td style="text-align:right">
+                   ${u.id !== App.user?.id ? `
+                     <button class="btn-icon" title="Удалить" style="color:var(--c-danger)" onclick="Pages.deleteUser('${u.id}', '${u.last_name} ${u.first_name}')">✕</button>
+                   ` : ''}
                 </td>
               </tr>
             `).join('')}
@@ -265,6 +272,17 @@ Pages.loadUsers = async (el) => {
     `;
   } catch (e) {
     document.getElementById('usersTable').innerHTML = UI.empty('⚠️','Ошибка загрузки');
+  }
+};
+
+Pages.deleteUser = async (id, name) => {
+  if (!confirm(`Вы уверены, что хотите удалить сотрудника ${name}?`)) return;
+  try {
+    await api.del(`/users/${id}`);
+    UI.toast('Сотрудник удалён', 'success');
+    Pages.loadUsers(document.getElementById('page-users'));
+  } catch (e) {
+    UI.toast(e.message, 'error');
   }
 };
 

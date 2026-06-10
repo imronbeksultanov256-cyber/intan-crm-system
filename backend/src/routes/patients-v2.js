@@ -50,10 +50,13 @@ router.get('/', authorize('patients:read'), async (req, res) => {
     const rows = await query(
       `SELECT
          p.*,
+         CONCAT(ud.last_name, ' ', ud.first_name) AS assigned_doctor_name,
          (SELECT COUNT(*) FROM appointments a WHERE a.patient_id = p.id) AS visit_count,
          (SELECT MAX(a.appointment_dt) FROM appointments a
           WHERE a.patient_id = p.id AND a.status = 'completed') AS last_visit
        FROM patients p
+       LEFT JOIN doctors d ON d.id = p.doctor_id
+       LEFT JOIN users ud ON ud.id = d.user_id
        WHERE ${deletedFilter}
        AND (p.last_name ILIKE $1 OR p.first_name ILIKE $1 OR p.phone ILIKE $1
             OR p.middle_name ILIKE $1)
@@ -82,7 +85,7 @@ router.post('/', authorize('patients:write'), async (req, res) => {
     const {
       first_name, last_name, middle_name,
       date_of_birth, phone, email, address,
-      gender, allergies, chronic_diseases, notes,
+      gender, allergies, chronic_diseases, notes, doctor_id
     } = req.body;
 
     if (!first_name || !last_name || !phone) {
@@ -92,14 +95,14 @@ router.post('/', authorize('patients:write'), async (req, res) => {
     const r = await query(
       `INSERT INTO patients
          (first_name, last_name, middle_name, date_of_birth, phone, email,
-          address, gender, allergies, chronic_diseases, notes, created_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+          address, gender, allergies, chronic_diseases, notes, created_by, doctor_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
        RETURNING *`,
       [first_name, last_name, middle_name || null,
        date_of_birth || null, phone, email || null,
        address || null, gender || null,
        allergies || null, chronic_diseases || null,
-       notes || null, req.user.id]
+       notes || null, req.user.id, doctor_id || null]
     );
 
     res.status(201).json(r.rows[0]);
@@ -119,11 +122,14 @@ router.get('/:id', authorize('patients:read'), async (req, res) => {
     // Основные данные
     const pRes = await query(
       `SELECT p.*,
+         CONCAT(ud.last_name, ' ', ud.first_name) AS assigned_doctor_name,
          json_build_object(
            'total_paid',    COALESCE((SELECT SUM(amount) FROM payments WHERE patient_id = p.id AND status='paid'), 0),
            'payment_count', COALESCE((SELECT COUNT(*) FROM payments WHERE patient_id = p.id AND status='paid'), 0)
          ) AS finance
        FROM patients p
+       LEFT JOIN doctors d ON d.id = p.doctor_id
+       LEFT JOIN users ud ON ud.id = d.user_id
        WHERE p.id = $1`,
       [id]
     );
@@ -236,7 +242,7 @@ router.put('/:id', authorize('patients:write'), async (req, res) => {
     const {
       first_name, last_name, middle_name,
       date_of_birth, phone, email, address,
-      gender, allergies, chronic_diseases, notes,
+      gender, allergies, chronic_diseases, notes, doctor_id
     } = req.body;
 
     const r = await query(
@@ -252,14 +258,15 @@ router.put('/:id', authorize('patients:write'), async (req, res) => {
          allergies        = $9,
          chronic_diseases = $10,
          notes            = $11,
+         doctor_id        = $12,
          updated_at       = NOW()
-       WHERE id = $12 AND is_deleted = FALSE
+       WHERE id = $13 AND is_deleted = FALSE
        RETURNING *`,
       [first_name, last_name, middle_name || null,
        date_of_birth || null, phone, email || null,
        address || null, gender || null,
        allergies || null, chronic_diseases || null,
-       notes || null, id]
+       notes || null, doctor_id || null, id]
     );
 
     if (!r.rows.length) return res.status(404).json({ error: 'Пациент не найден' });

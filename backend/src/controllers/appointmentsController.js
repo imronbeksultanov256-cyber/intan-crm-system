@@ -115,22 +115,37 @@ exports.updateStatus = async (req, res) => {
   const { id } = req.params;
   const { status } = req.body;
 
-  const allowed = ['pending','confirmed','in_progress','completed','cancelled','no_show'];
+  const allowed = ['pending', 'confirmed', 'in_progress', 'completed', 'cancelled', 'no_show'];
   if (!allowed.includes(status)) {
     return res.status(400).json({ error: 'Недопустимый статус' });
   }
 
   try {
-    const result = await query(
-      `UPDATE appointments
-       SET status = $1,
-           confirmed_by = CASE WHEN $1 = 'confirmed' THEN $2 ELSE confirmed_by END,
-           updated_at = NOW()
-       WHERE id = $3 RETURNING *`,
-      [status, req.user.id, id]
+    // Получаем текущую запись для лога
+    const oldAppt = await query('SELECT status FROM appointments WHERE id = $1', [id]);
+    if (!oldAppt.rows[0]) return res.status(404).json({ error: 'Запись не найдена' });
+
+    let sql = `UPDATE appointments SET status = $1, updated_at = NOW()`;
+    const params = [status];
+
+    // Если подтверждаем — записываем кто подтвердил
+    if (status === 'confirmed') {
+      sql += `, confirmed_by = $2`;
+      params.push(req.user.id);
+    }
+
+    sql += ` WHERE id = $${params.length + 1} RETURNING *`;
+    params.push(id);
+
+    const result = await query(sql, params);
+
+    // Логируем действие
+    await query(
+      `INSERT INTO activity_log (user_id, action, entity_type, entity_id, old_values, new_values)
+       VALUES ($1, 'UPDATE_APPOINTMENT_STATUS', 'appointment', $2, $3, $4)`,
+      [req.user.id, id, JSON.stringify({ status: oldAppt.rows[0].status }), JSON.stringify({ status })]
     );
 
-    if (!result.rows[0]) return res.status(404).json({ error: 'Запись не найдена' });
     res.json(result.rows[0]);
   } catch (err) {
     console.error('[appointments.updateStatus] ERROR:', err.message);

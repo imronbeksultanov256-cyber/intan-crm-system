@@ -107,12 +107,12 @@ Pages.showDoctorDetail = async (id) => {
           </div>
           <div style="display:grid;grid-template-columns:repeat(auto-fill, minmax(100px, 1fr));gap:8px">
             ${[1,2,3,4,5,6,7].map(day => {
-              const s = d.schedule.find(x => x.day_of_week === day);
+              const s = d.schedule?.find(x => x.day_of_week === day);
               const days = ['', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
               return `
                 <div style="padding:8px;border-radius:8px;border:1px solid var(--border);text-align:center;${s?.is_working ? '' : 'opacity:0.5;background:var(--surface-2)'}">
                   <div style="font-size:11px;font-weight:700">${days[day]}</div>
-                  <div style="font-size:12px">${s?.is_working ? `${s.start_time.slice(0,5)}-${s.end_time.slice(0,5)}` : 'Вых'}</div>
+                  <div style="font-size:12px">${s?.is_working && s.start_time ? `${s.start_time.slice(0,5)}-${s.end_time.slice(0,5)}` : 'Вых'}</div>
                 </div>
               `;
             }).join('')}

@@ -305,6 +305,34 @@ router.post('/users',
   }
 );
 
+router.delete('/users/:id',
+  authenticate, requireRole('chief_doctor'),
+  async (req, res) => {
+    const { id } = req.params;
+    if (id === req.user.id) {
+      return res.status(400).json({ error: 'Вы не можете удалить самого себя' });
+    }
+    try {
+      // Проверяем существование
+      const user = await query('SELECT id FROM users WHERE id = $1', [id]);
+      if (!user.rows[0]) return res.status(404).json({ error: 'Сотрудник не найден' });
+
+      await query('DELETE FROM users WHERE id = $1', [id]);
+      
+      await query(
+        `INSERT INTO activity_log (user_id, action, entity_type, entity_id)
+         VALUES ($1, 'DELETE_USER', 'user', $2)`,
+        [req.user.id, id]
+      ).catch(() => {});
+
+      res.json({ success: true, message: 'Сотрудник удалён' });
+    } catch (err) {
+      console.error('[users.delete]', err.message);
+      res.status(500).json({ error: 'Ошибка при удалении сотрудника. Возможно, у него есть связанные записи (врач, приёмы).' });
+    }
+  }
+);
+
 // ── DASHBOARD SUMMARY ─────────────────────────────────────
 router.get('/dashboard', async (req, res) => {
   try {

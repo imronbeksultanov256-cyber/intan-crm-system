@@ -39,10 +39,14 @@ exports.list = async (req, res) => {
       `SELECT
          p.id, p.first_name, p.last_name, p.middle_name,
          p.date_of_birth, p.phone, p.email, p.gender, p.created_at,
+         p.assigned_doctor_id,
+         u_doc.last_name || ' ' || SUBSTRING(u_doc.first_name, 1, 1) || '.' AS assigned_doctor_name,
          ${hasDeletedCol ? 'p.is_deleted, p.deleted_at,' : 'FALSE AS is_deleted, NULL AS deleted_at,'}
          (SELECT COUNT(*) FROM appointments a WHERE a.patient_id = p.id) AS visit_count,
          (SELECT MAX(a.appointment_dt) FROM appointments a WHERE a.patient_id = p.id) AS last_visit
        FROM patients p
+       LEFT JOIN doctors d_doc ON d_doc.id = p.assigned_doctor_id
+       LEFT JOIN users u_doc ON u_doc.id = d_doc.user_id
        WHERE CONCAT(p.last_name,' ',p.first_name,' ',COALESCE(p.middle_name,''),' ',p.phone)
              ILIKE $1 ${deletedFilter}
        ORDER BY ${sortColumn} ${sortOrder}
@@ -68,7 +72,14 @@ exports.list = async (req, res) => {
 exports.get = async (req, res) => {
   const { id } = req.params;
   try {
-    const patient = await query('SELECT * FROM patients WHERE id = $1', [id]);
+    const patient = await query(
+      `SELECT p.*,
+              u_doc.last_name || ' ' || u_doc.first_name AS assigned_doctor_name
+       FROM patients p
+       LEFT JOIN doctors d_doc ON d_doc.id = p.assigned_doctor_id
+       LEFT JOIN users u_doc ON u_doc.id = d_doc.user_id
+       WHERE p.id = $1`, [id]
+    );
     if (!patient.rows[0]) return res.status(404).json({ error: 'Пациент не найден' });
 
     // Проверяем наличие новых таблиц
@@ -174,7 +185,8 @@ exports.get = async (req, res) => {
 exports.create = async (req, res) => {
   const {
     first_name, last_name, middle_name, date_of_birth,
-    phone, email, address, gender, allergies, chronic_diseases, notes
+    phone, email, address, gender, allergies, chronic_diseases, notes,
+    assigned_doctor_id
   } = req.body;
 
   if (!first_name || !last_name || !phone) {
@@ -185,11 +197,13 @@ exports.create = async (req, res) => {
     const result = await query(
       `INSERT INTO patients
          (first_name, last_name, middle_name, date_of_birth, phone, email,
-          address, gender, allergies, chronic_diseases, notes, created_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *`,
+          address, gender, allergies, chronic_diseases, notes, created_by,
+          assigned_doctor_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *`,
       [first_name, last_name, middle_name||null, date_of_birth||null,
        phone, email||null, address||null, gender||null,
-       allergies||null, chronic_diseases||null, notes||null, req.user.id]
+       allergies||null, chronic_diseases||null, notes||null, req.user.id,
+       assigned_doctor_id || null]
     );
 
     await query(
@@ -212,7 +226,8 @@ exports.update = async (req, res) => {
   const { id } = req.params;
   const {
     first_name, last_name, middle_name, date_of_birth,
-    phone, email, address, gender, allergies, chronic_diseases, notes
+    phone, email, address, gender, allergies, chronic_diseases, notes,
+    assigned_doctor_id
   } = req.body;
 
   try {
@@ -229,10 +244,12 @@ exports.update = async (req, res) => {
          allergies        = $9,
          chronic_diseases = $10,
          notes            = $11,
+         assigned_doctor_id = COALESCE($12, assigned_doctor_id),
          updated_at       = NOW()
-       WHERE id = $12 RETURNING *`,
+       WHERE id = $13 RETURNING *`,
       [first_name, last_name, middle_name, date_of_birth,
-       phone, email, address, gender, allergies, chronic_diseases, notes, id]
+       phone, email, address, gender, allergies, chronic_diseases, notes,
+       assigned_doctor_id || null, id]
     );
 
     if (!result.rows[0]) return res.status(404).json({ error: 'Пациент не найден' });

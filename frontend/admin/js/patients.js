@@ -97,6 +97,7 @@ Pages.loadPatients = async (el) => {
                 📅 ${p.visit_count||0} визит${p.visit_count==1?'':p.visit_count>4?'ов':'а'}
               </span>
               <span style="font-size:11px;color:var(--text-3)">· ${lastVisit}</span>
+              ${p.assigned_doctor_name ? `<span style="font-size:11px;color:var(--c-primary);font-weight:600">· 👨‍⚕️ ${p.assigned_doctor_name}</span>` : ''}
             </div>
           </div>
         </div>`;
@@ -162,6 +163,7 @@ Pages.loadPatientDetail = async (el, params) => {
               ${p.gender ? `<span>${p.gender==='male'?'♂ Мужской':'♀ Женский'}</span>` : ''}
               ${p.date_of_birth ? `<span>📅 ${UI.fmtDate(p.date_of_birth)}</span>` : ''}
               ${p.address ? `<span>📍 ${p.address}</span>` : ''}
+              ${p.assigned_doctor_id ? `<span>👨‍⚕️ Закреплён: <strong>${p.assigned_doctor_name || 'Врач'}</strong></span>` : ''}
             </div>
             <div style="display:flex;gap:8px;flex-wrap:wrap">
               <button class="btn-primary btn-sm" onclick="Pages.showCreateApptModal('${p.id}')">+ Записать</button>
@@ -788,7 +790,12 @@ Pages.uploadPatientFile = async (patientId) => {
   Pages.loadPatientDetail(document.getElementById('page-patient-detail'), { patientId });
 };
 
-Pages.showCreatePatientModal = () => {
+Pages.showCreatePatientModal = async () => {
+  let doctors = [];
+  try {
+    doctors = await api.doctors();
+  } catch (_) {}
+
   UI.showModal('Новый пациент', `
     <form id="createPatientForm" style="display:flex;flex-direction:column;gap:12px">
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
@@ -807,6 +814,13 @@ Pages.showCreatePatientModal = () => {
             <option value="">Не указан</option><option value="male">Мужской</option><option value="female">Женский</option>
           </select>
         </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Закреплённый врач</label>
+        <select class="form-select" name="assigned_doctor_id">
+          <option value="">Не назначен</option>
+          ${doctors.map(d => `<option value="${d.id}">${d.last_name} ${d.first_name} — ${d.specialization}</option>`).join('')}
+        </select>
       </div>
       <div class="form-group"><label class="form-label">Адрес</label><input class="form-input" name="address" /></div>
       <div class="form-group"><label class="form-label" style="color:#ef4444">⚠️ Аллергии</label><textarea class="form-textarea" name="allergies" rows="2"></textarea></div>
@@ -828,7 +842,7 @@ Pages.showCreatePatientModal = () => {
 
 Pages.showEditPatientModal = async (id) => {
   try {
-    const p = await api.patient(id);
+    const [p, doctors] = await Promise.all([api.patient(id), api.doctors()]);
     UI.showModal('Редактировать пациента', `
       <form id="editPatientForm" style="display:flex;flex-direction:column;gap:12px">
         <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
@@ -843,6 +857,13 @@ Pages.showEditPatientModal = async (id) => {
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
           <div class="form-group"><label class="form-label">Email</label><input class="form-input" name="email" value="${p.email||''}" /></div>
           <div class="form-group"><label class="form-label">Адрес</label><input class="form-input" name="address" value="${p.address||''}" /></div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Закреплённый врач</label>
+          <select class="form-select" name="assigned_doctor_id">
+            <option value="">Не назначен</option>
+            ${doctors.map(d => `<option value="${d.id}" ${p.assigned_doctor_id === d.id ? 'selected' : ''}>${d.last_name} ${d.first_name} — ${d.specialization}</option>`).join('')}
+          </select>
         </div>
         <div class="form-group"><label class="form-label" style="color:#ef4444">⚠️ Аллергии</label><textarea class="form-textarea" name="allergies" rows="2">${p.allergies||''}</textarea></div>
         <div class="form-group"><label class="form-label" style="color:#d97706">🩺 Хронические заболевания</label><textarea class="form-textarea" name="chronic_diseases" rows="2">${p.chronic_diseases||''}</textarea></div>
