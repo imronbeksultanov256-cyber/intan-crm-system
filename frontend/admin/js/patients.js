@@ -699,12 +699,12 @@ Pages.softDeletePatient = (id, name) => {
 };
 
 Pages.confirmSoftDelete = async (id) => {
-  const confirm_word = document.getElementById('deleteConfirmWord')?.value?.trim();
+  const confirm_word = document.getElementById('deleteConfirmWord')?.value?.trim()?.toLowerCase();
   const reason       = document.getElementById('deleteReason')?.value?.trim();
-  if (confirm_word !== 'УДАЛИТЬ') { UI.toast('Введите слово УДАЛИТЬ', 'error'); return; }
+  if (confirm_word !== 'удалить') { UI.toast('Введите слово УДАЛИТЬ', 'error'); return; }
   if (!reason || reason.length < 5) { UI.toast('Укажите причину удаления', 'error'); return; }
   try {
-    await api.deletePatient(id, { confirm_word, reason });
+    await api.deletePatient(id, { confirm_word: 'УДАЛИТЬ', reason });
     UI.closeModal();
     UI.toast('Пациент перемещён в корзину', 'success');
     navigate('patients');
@@ -733,11 +733,26 @@ Pages.showDeletedPatients = async () => {
               <div style="font-weight:600;font-size:13px">${p.last_name} ${p.first_name}</div>
               <div style="font-size:11px;color:var(--text-3)">${p.phone} · Удалён: ${UI.fmtDate(p.deleted_at)}</div>
             </div>
-            <button class="btn-secondary btn-sm" onclick="Pages.restorePatient('${p.id}')">♻️ Восстановить</button>
+            <div style="display:flex;gap:6px">
+              <button class="btn-secondary btn-sm" onclick="Pages.restorePatient('${p.id}')">♻️ Восстановить</button>
+              <button class="btn-secondary btn-sm" style="color:var(--c-danger)" onclick="Pages.permanentDeletePatient('${p.id}','${p.last_name} ${p.first_name}')">🗑 Удалить навсегда</button>
+            </div>
           </div>`).join('')}
       </div>`;
   } catch(e) {
     document.getElementById('trashedContent').innerHTML = UI.empty('⚠️','Ошибка загрузки');
+  }
+};
+
+Pages.permanentDeletePatient = async (id, name) => {
+  if (!confirm(`Вы уверены, что хотите НАВСЕГДА удалить данные пациента ${name}? Это действие нельзя отменить.`)) return;
+  try {
+    await api.del(`/patients/${id}/permanent`, { confirm_word: 'УДАЛИТЬ НАВСЕГДА' });
+    UI.toast('Пациент удалён окончательно', 'success');
+    UI.closeModal();
+    Pages.loadPatients(document.getElementById('page-patients'));
+  } catch(e) {
+    UI.toast(e.message || 'Ошибка удаления', 'error');
   }
 };
 

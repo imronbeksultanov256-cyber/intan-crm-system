@@ -11,14 +11,14 @@ Pages.loadAppointments = async (el) => {
 
     <!-- Счётчики статусов -->
     <div id="apptCounters" style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px">
-      ${['pending','confirmed','in_progress','completed','cancelled'].map(s => `
+      ${['requests','pending','confirmed','in_progress','completed','cancelled'].map(s => `
         <div class="appt-counter" data-status="${s}" onclick="Pages.filterByStatus('${s}')" style="
           background:var(--surface);border:1px solid var(--border);border-radius:10px;
           padding:10px 16px;cursor:pointer;transition:all 0.18s;min-width:110px;text-align:center;
         ">
           <div class="appt-counter__num" id="cnt-${s}" style="font-size:1.4rem;font-weight:700">—</div>
           <div style="font-size:11px;color:var(--text-3);margin-top:2px">${{
-            pending:'Ожидают', confirmed:'Подтверждены',
+            requests:'Заявки (новые)', pending:'Ожидают', confirmed:'Подтверждены',
             in_progress:'На приёме', completed:'Завершены', cancelled:'Отменены'
           }[s]}</div>
         </div>
@@ -156,10 +156,114 @@ Pages._apptShowAll = () => {
 // ── Фильтр по статусу через счётчик ──────────────────────
 Pages.filterByStatus = (status) => {
   const sel = document.getElementById('apptStatusFilter');
+  if (status === 'requests') {
+    // Для заявок сбрасываем фильтр даты и статуса, загружаем все
+    document.getElementById('apptDateFilter').value = '';
+    Pages._apptSelectedDate = '';
+    if (sel) sel.value = 'pending';
+    Pages._apptLoad();
+    return;
+  }
   if (sel) {
     sel.value = sel.value === status ? '' : status;
     Pages._apptLoad();
   }
+};
+
+// ── Оформление заявки (назначение врача и времени) ─────────
+Pages.processRequest = async (apptId, patientId, patientName) => {
+  let doctors = [], svcFlat = [];
+  try {
+    const [d, s] = await Promise.all([api.doctors(), api.services()]);
+    doctors = d || [];
+    svcFlat = s?.flat || (Array.isArray(s) ? s : []);
+  } catch (_) {}
+
+  UI.showModal(`Оформление заявки: ${patientName}`, `
+    <form id="processRequestForm" style="display:flex;flex-direction:column;gap:14px">
+      <div class="form-group">
+        <label class="form-label">Врач *</label>
+        <select class="form-select" id="reqDoctor" onchange="Pages.loadReqSlots()">
+          <option value="">Выберите врача</option>
+          ${doctors.map(d => `
+            <option value="${d.id}">${d.last_name} ${d.first_name} — ${d.specialization}</option>
+          `).join('')}
+        </select>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div class="form-group">
+          <label class="form-label">Дата *</label>
+          <input class="form-input" type="date" id="reqDate"
+            min="${new Date().toISOString().split('T')[0]}"
+            onchange="Pages.loadReqSlots()" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">Время *</label>
+          <select class="form-select" id="reqTime">
+            <option value="">Выберите врача и дату</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Услуга</label>
+        <select class="form-select" id="reqService">
+          <option value="">Не выбрана</option>
+          ${svcFlat.map(s => `<option value="${s.id}">${s.name} — ${s.price} сом</option>`).join('')}
+        </select>
+      </div>
+      <button type="submit" class="btn-primary">Подтвердить и записать</button>
+    </form>
+  `);
+
+  Pages.loadReqSlots = async () => {
+    const doctorId = document.getElementById('reqDoctor')?.value;
+    const date     = document.getElementById('reqDate')?.value;
+    const timeEl   = document.getElementById('reqTime');
+    if (!doctorId || !date || !timeEl) return;
+    timeEl.innerHTML = '<option>Загрузка...</option>';
+    try {
+      const res = await api.slots(doctorId, date);
+      const slots = res?.slots || [];
+      timeEl.innerHTML = slots.length
+        ? slots.map(s => `<option value="${s}">${s}</option>`).join('')
+        : '<option value="">Нет свободных слотов</option>';
+    } catch (_) { timeEl.innerHTML = '<option value="">Ошибка</option>'; }
+  };
+
+  document.getElementById('processRequestForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const doctorId  = document.getElementById('reqDoctor').value;
+    const date      = document.getElementById('reqDate').value;
+    const time      = document.getElementById('reqTime').value;
+    const serviceId = document.getElementById('reqService').value;
+
+    if (!doctorId || !date || !time) {
+      UI.toast('Выберите врача, дату и время', 'error'); return;
+    }
+
+    const apptDt = `${date}T${time}:00`;
+
+    try {
+      // Обновляем запись: ставим время, врача и переводим в статус 'confirmed'
+      await api.patch(`/appointments/${apptId}/status`, { status: 'confirmed' });
+      // Дополнительно обновляем данные самой записи (нужен эндпоинт для полного обновления или расширенный patch)
+      // В данном случае, так как у нас только updateStatus, возможно нужно расширить его или использовать другой.
+      // Предположим, что updateStatus может принимать и другие поля.
+      await api.patch(`/appointments/${apptId}`, { 
+        doctor_id: doctorId, 
+        appointment_dt: apptDt,
+        service_id: serviceId || null,
+        status: 'confirmed'
+      });
+
+      UI.closeModal();
+      UI.toast('Запись оформлена и подтверждена', 'success');
+      await Pages._apptLoad();
+      await Pages._loadCounters();
+    } catch (err) {
+      UI.toast(err.message, 'error');
+    }
+  });
 };
 
 // ── Загрузка записей ──────────────────────────────────────
@@ -185,8 +289,14 @@ Pages._loadCounters = async () => {
     const all = await api.appointments('?');
     if (!all?.length) return;
 
-    const counts = { pending:0, confirmed:0, in_progress:0, completed:0, cancelled:0 };
-    all.forEach(a => { if (counts[a.status] !== undefined) counts[a.status]++; });
+    const counts = { requests:0, pending:0, confirmed:0, in_progress:0, completed:0, cancelled:0 };
+    all.forEach(a => { 
+      if (a.source === 'online' && a.status === 'pending' && !a.appointment_dt) {
+        counts.requests++;
+      } else if (counts[a.status] !== undefined) {
+        counts[a.status]++; 
+      }
+    });
 
     Object.entries(counts).forEach(([status, count]) => {
       const el = document.getElementById(`cnt-${status}`);
@@ -194,7 +304,7 @@ Pages._loadCounters = async () => {
 
       // Подсвечиваем счётчик если есть записи
       const card = document.querySelector(`.appt-counter[data-status="${status}"]`);
-      if (card && count > 0 && status === 'pending') {
+      if (card && count > 0 && (status === 'pending' || status === 'requests')) {
         card.style.borderColor = 'var(--c-warning)';
         card.style.background  = '#fefce8';
       }
@@ -231,13 +341,14 @@ Pages._renderAppointments = (rows) => {
         </tr></thead>
         <tbody>
           ${rows.map(a => {
-            const time = new Date(a.appointment_dt).toLocaleTimeString('ru-RU', {hour:'2-digit', minute:'2-digit'});
-            const date = new Date(a.appointment_dt).toLocaleDateString('ru-RU', {day:'2-digit', month:'2-digit'});
+            const isRequest = !a.appointment_dt;
+            const time = isRequest ? 'ЗАЯВКА' : new Date(a.appointment_dt).toLocaleTimeString('ru-RU', {hour:'2-digit', minute:'2-digit'});
+            const date = isRequest ? 'БЕЗ ДАТЫ' : new Date(a.appointment_dt).toLocaleDateString('ru-RU', {day:'2-digit', month:'2-digit'});
             const flow = statusFlow[a.status];
             const canCancel = ['pending','confirmed'].includes(a.status);
 
             return `
-              <tr style="transition:background 0.15s">
+              <tr style="transition:background 0.15s; ${isRequest ? 'background:var(--c-primary-bg)' : ''}">
                 <td>
                   <div style="font-family:var(--font-mono);font-weight:700;font-size:14px">${time}</div>
                   <div style="font-size:11px;color:var(--text-3)">${date}</div>
@@ -254,19 +365,21 @@ Pages._renderAppointments = (rows) => {
                 <td>${UI.badge(a.status)}</td>
                 <td>
                   <div class="actions">
-                    ${flow ? `
+                    ${isRequest ? `
+                      <button class="btn-primary btn-sm" onclick="Pages.processRequest('${a.id}', '${a.patient_id}', '${a.patient_name}')">Оформить</button>
+                    ` : (flow ? `
                       <button class="btn-icon" title="${flow.label}"
                         style="color:${flow.color};border-color:${flow.color}"
                         onclick="Pages.changeApptStatus('${a.id}','${flow.next}')">
                         ${flow.label.split(' ')[0]}
                       </button>
-                    ` : ''}
+                    ` : '')}
                     ${canCancel ? `
                       <button class="btn-icon" title="Отменить"
                         style="color:var(--c-danger)"
                         onclick="Pages.changeApptStatus('${a.id}','cancelled')">✕</button>
                     ` : ''}
-                    ${a.status === 'pending' ? `
+                    ${a.status === 'pending' && !isRequest ? `
                       <button class="btn-icon" title="Не пришёл"
                         style="color:var(--text-3)"
                         onclick="Pages.changeApptStatus('${a.id}','no_show')">👻</button>

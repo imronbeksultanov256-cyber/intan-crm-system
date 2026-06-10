@@ -48,7 +48,9 @@ exports.list = async (req, res) => {
        LEFT JOIN users u ON u.id = doc.user_id
        LEFT JOIN services s ON s.id = a.service_id
        ${where}
-       ORDER BY a.appointment_dt ASC
+       ORDER BY CASE WHEN a.appointment_dt IS NULL THEN 0 ELSE 1 END,
+                a.appointment_dt ASC,
+                a.created_at DESC
        LIMIT $${pi++} OFFSET $${pi}`,
       [...params, parseInt(limit), offset]
     );
@@ -57,6 +59,36 @@ exports.list = async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Ошибка при получении записей' });
+  }
+};
+
+// ── PATCH /api/appointments/:id ───────────────────────────
+exports.update = async (req, res) => {
+  const { id } = req.params;
+  const {
+    doctor_id, service_id, appointment_dt,
+    duration_min, comment, status
+  } = req.body;
+
+  try {
+    const result = await query(
+      `UPDATE appointments SET
+         doctor_id      = COALESCE($1, doctor_id),
+         service_id     = COALESCE($2, service_id),
+         appointment_dt = COALESCE($3, appointment_dt),
+         duration_min   = COALESCE($4, duration_min),
+         comment        = COALESCE($5, comment),
+         status         = COALESCE($6, status),
+         updated_at     = NOW()
+       WHERE id = $7 RETURNING *`,
+      [doctor_id, service_id, appointment_dt, duration_min, comment, status, id]
+    );
+
+    if (!result.rows[0]) return res.status(404).json({ error: 'Запись не найдена' });
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('[appointments.update] ERROR:', err.message);
+    res.status(500).json({ error: 'Ошибка при обновлении записи' });
   }
 };
 

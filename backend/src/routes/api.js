@@ -130,17 +130,21 @@ router.post('/appointments',
   authenticate, authorize('appointments:write'),
   appointmentsCtrl.create);
 
+router.patch('/appointments/:id',
+  authenticate, authorize('appointments:write'),
+  appointmentsCtrl.update);
+
 router.patch('/appointments/:id/status',
   authenticate, authorize('appointments:write'),
   appointmentsCtrl.updateStatus);
 
 // ── PUBLIC — Online booking (no auth) ─────────────────────
-// ИСПРАВЛЕНО: doctor_id NOT NULL в БД — автоматически назначаем первого врача
+// Клиент оставляет заявку. Врач и время НЕ обязательны.
 router.post('/book', async (req, res) => {
   const { patient_name, phone, doctor_id, service_id, appointment_dt, comment } = req.body;
 
-  if (!patient_name || !phone || !appointment_dt) {
-    return res.status(400).json({ error: 'Имя, телефон и дата обязательны' });
+  if (!patient_name || !phone) {
+    return res.status(400).json({ error: 'Имя и телефон обязательны' });
   }
 
   try {
@@ -159,39 +163,20 @@ router.post('/book', async (req, res) => {
       patient = result.rows[0];
     }
 
-    // 2. Определяем врача
-    // Если doctor_id передан — используем его
-    // Если нет — берём первого активного врача (doctor_id NOT NULL в схеме БД)
-    let finalDoctorId = doctor_id || null;
-    if (!finalDoctorId) {
-      const defDoc = await query(
-        `SELECT d.id FROM doctors d
-         JOIN users u ON u.id = d.user_id
-         WHERE u.is_active = TRUE
-         ORDER BY d.id
-         LIMIT 1`
-      );
-      finalDoctorId = defDoc.rows[0]?.id || null;
-    }
-
-    if (!finalDoctorId) {
-      return res.status(500).json({ error: 'В клинике нет активных врачей. Позвоните нам.' });
-    }
-
-    // 3. Создаём запись
+    // 2. Создаём запись как ЗАЯВКУ (appointment_dt может быть NULL)
+    // Если дата передана — используем её, если нет — оставляем пустой
     const appt = await query(
       `INSERT INTO appointments
-         (patient_id, doctor_id, service_id, appointment_dt, comment, source)
-       VALUES ($1,$2,$3,$4,$5,'online') RETURNING id, appointment_dt`,
-      [patient.id, finalDoctorId, service_id || null, appointment_dt, comment || null]
+         (patient_id, doctor_id, service_id, appointment_dt, comment, source, status)
+       VALUES ($1,$2,$3,$4,$5,'online','pending') RETURNING id, appointment_dt`,
+      [patient.id, doctor_id || null, service_id || null, appointment_dt || null, comment || null]
     );
 
     res.status(201).json({ success: true, appointment: appt.rows[0] });
 
   } catch (err) {
     console.error('[/book] ERROR:', err.message);
-    console.error('[/book] DETAIL:', err.detail || '');
-    res.status(500).json({ error: 'Ошибка при записи. Попробуйте позвонить нам.' });
+    res.status(500).json({ error: 'Ошибка при отправке заявки. Попробуйте позвонить нам.' });
   }
 });
 
@@ -291,14 +276,28 @@ router.post('/users',
       return res.status(400).json({ error: 'Все поля обязательны' });
     }
     try {
+      await query('BEGIN');
       const hash = await bcrypt.hash(password, 12);
       const result = await query(
         `INSERT INTO users (email, password_hash, first_name, last_name, phone, role_id)
          VALUES ($1,$2,$3,$4,$5,$6) RETURNING id, email, first_name, last_name`,
         [email, hash, first_name, last_name, phone || null, role_id]
       );
-      res.status(201).json(result.rows[0]);
+      const newUser = result.rows[0];
+
+      // Если роль — врач (ID 2), создаём профиль в таблице doctors
+      if (parseInt(role_id) === 2) {
+        await query(
+          `INSERT INTO doctors (user_id, specialization)
+           VALUES ($1, 'Врач-стоматолог')`,
+          [newUser.id]
+        );
+      }
+
+      await query('COMMIT');
+      res.status(201).json(newUser);
     } catch (err) {
+      await query('ROLLBACK');
       if (err.code === '23505') return res.status(409).json({ error: 'Email уже используется' });
       res.status(500).json({ error: 'Ошибка при создании пользователя' });
     }

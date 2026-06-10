@@ -219,17 +219,27 @@ Pages.loadUsers = async (el) => {
   el.innerHTML = `
     <div class="page-header">
       <div><h1>Сотрудники</h1></div>
-      <button class="btn-primary" onclick="Pages.showAddUserModal()">+ Добавить</button>
+      <div style="display:flex;gap:10px">
+        <select class="form-select" id="staffRoleFilter" style="width:160px">
+          <option value="">Все роли</option>
+          <option value="chief_doctor">Главный врач</option>
+          <option value="doctor">Врач</option>
+          <option value="admin">Администратор</option>
+        </select>
+        <button class="btn-primary" onclick="Pages.showAddUserModal()">+ Добавить</button>
+      </div>
     </div>
     <div class="card">
       <div class="card__body" id="usersTable">${UI.skeleton(5,5)}</div>
     </div>
   `;
 
-  try {
-    const users = await api.users();
+  let allUsers = [];
+
+  const render = (role) => {
+    const filtered = role ? allUsers.filter(u => u.role === role) : allUsers;
     const tbl = document.getElementById('usersTable');
-    if (!users?.length) { tbl.innerHTML = UI.empty('👥','Нет сотрудников'); return; }
+    if (!filtered?.length) { tbl.innerHTML = UI.empty('👥','Сотрудники не найдены'); return; }
 
     tbl.innerHTML = `
       <div class="data-table-wrap">
@@ -238,7 +248,7 @@ Pages.loadUsers = async (el) => {
             <th>Сотрудник</th><th>Email</th><th>Роль</th><th>Телефон</th><th>Статус</th><th style="text-align:right">Действия</th>
           </tr></thead>
           <tbody>
-            ${users.map(u => `
+            ${filtered.map(u => `
               <tr>
                 <td>
                   <div style="display:flex;align-items:center;gap:10px">
@@ -270,6 +280,12 @@ Pages.loadUsers = async (el) => {
         </table>
       </div>
     `;
+  };
+
+  try {
+    allUsers = await api.users();
+    render();
+    document.getElementById('staffRoleFilter').addEventListener('change', (e) => render(e.target.value));
   } catch (e) {
     document.getElementById('usersTable').innerHTML = UI.empty('⚠️','Ошибка загрузки');
   }
