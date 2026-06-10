@@ -14,22 +14,17 @@ if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
 
 app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
 
-// ── ОБНОВЛЕННЫЙ CORS (УНИВЕРСАЛЬНАЯ ПРОВЕРКА) ───────────────────────────────
+// ── CORS ──────────────────────────────────────────────────────
 const allowedOrigins = [
   'http://localhost:3001',
   'http://localhost:5500',
   'http://127.0.0.1:5500',
-  // Vercel — админка
   'https://intan-crm-system-g6e9.vercel.app',
-  // GitHub Pages — публичный сайт
-  'https://imronbeksultanov256-cyber.github.io',  // ← ДОБАВЬТЕ ЭТО
+  'https://imronbeksultanov256-cyber.github.io',
 ];
 app.use(cors({
-  origin: function(origin, callback) {
-    // 1. Разрешаем запросы без origin (например, инструменты тестирования)
+  origin: (origin, callback) => {
     if (!origin) return callback(null, true);
-    
-    // 2. Разрешаем, если домен есть в списке ИЛИ если это любой поддомен vercel.app
     if (allowedOrigins.includes(origin) || origin.endsWith('.vercel.app')) {
       callback(null, true);
     } else {
@@ -41,20 +36,13 @@ app.use(cors({
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
 }));
-
-// Явно обрабатываем предварительные (preflight) OPTIONS запросы
 app.options('*', cors());
-// ────────────────────────────────────────────────────────────────────────────
 
-// Явно обрабатываем предварительные (preflight) OPTIONS запросы
-app.options('*', cors());
-// ────────────────────────────────────────────────────────────────────────────
-
-// !!! ВАЖНО: Парсеры JSON перенесены НАВЕРХ, строго до любых лимитеров !!!
+// ── PARSERS ───────────────────────────────────────────────────
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// Настройка лимитеров частоты запросов
+// ── RATE LIMIT ────────────────────────────────────────────────
 const limiter = rateLimit({
   windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000,
   max: parseInt(process.env.RATE_LIMIT_MAX) || 300,
@@ -64,39 +52,39 @@ const limiter = rateLimit({
 app.use('/api', limiter);
 app.use('/api/auth/login', rateLimit({ windowMs: 15*60*1000, max: 20 }));
 
-// Раздача статических файлов
+// ── STATIC ────────────────────────────────────────────────────
 app.use('/uploads', express.static(path.resolve(uploadDir)));
 app.use('/admin',   express.static(path.resolve(__dirname, '../../frontend/admin')));
 app.use(express.static(path.resolve(__dirname, '../../frontend/public')));
 
-// Подключение основных роутов API
-app.use('/api', require('./routes/api'));
+// ── ROUTES ────────────────────────────────────────────────────
+// ВАЖНО: patients-v2 должен быть ПЕРЕД общим api роутом,
+// иначе /api/patients будет перехвачен раньше
+app.use('/api/patients', require('./routes/patients-v2'));
+app.use('/api',          require('./routes/api'));
 
-// Проверка работоспособности (Health Check)
+// ── SERVICE ROUTES ────────────────────────────────────────────
 app.get('/health', (req, res) => res.json({
   status: 'ok', time: new Date().toISOString(), env: process.env.NODE_ENV,
 }));
 
-// Добавлено: Обработка корневого маршрута (чтобы по прямой ссылке не было 404)
 app.get('/', (req, res) => res.json({
   message: 'Intan Clinic API успешно запущен и работает!',
-  docs: '/api',
-  health: '/health'
+  docs: '/api', health: '/health',
 }));
 
 app.get('/admin/*', (req, res) => {
   res.sendFile(path.resolve(__dirname, '../../frontend/admin/index.html'));
 });
 
-// Если ни один маршрут не подошел
+// ── 404 & ERROR HANDLER ───────────────────────────────────────
 app.use((req, res) => res.status(404).json({ error: 'Маршрут не найден' }));
-
-// Глобальный обработчик ошибок
 app.use((err, req, res, next) => {
   console.error('Unhandled error:', err.message);
   res.status(500).json({ error: 'Внутренняя ошибка сервера' });
 });
 
+// ── START ─────────────────────────────────────────────────────
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
   console.log(`\n🦷 Intan Clinic API  →  http://localhost:${PORT}`);
@@ -108,20 +96,18 @@ app.listen(PORT, () => {
   }
 });
 
-// ── KEEP ALIVE ДЛЯ БЕСПЛАТНОГО ТАРИФА RENDER ────────────────────────────────
+// ── KEEP ALIVE (Render free tier) ─────────────────────────────
 if (process.env.NODE_ENV === 'production') {
   const BACKEND_URL = process.env.RENDER_EXTERNAL_URL || 'https://intan-backend.onrender.com';
-  
   setInterval(async () => {
     try {
-      const fetchModule = global.fetch || require('node-fetch');
-      await fetchModule(`${BACKEND_URL}/health`);
+      const fetchFn = global.fetch || require('node-fetch');
+      await fetchFn(`${BACKEND_URL}/health`);
       console.log('[KeepAlive] ping OK');
     } catch (e) {
       console.warn('[KeepAlive] ping failed:', e.message);
     }
   }, 10 * 60 * 1000);
 }
-// ────────────────────────────────────────────────────────────────────────────
 
 module.exports = app;
