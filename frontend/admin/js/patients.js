@@ -731,28 +731,11 @@ Pages.showDeletedPatients = async () => {
               <div style="font-weight:600;font-size:13px">${p.last_name} ${p.first_name}</div>
               <div style="font-size:11px;color:var(--text-3)">${p.phone} · Удалён: ${UI.fmtDate(p.deleted_at)}</div>
             </div>
-            <div style="display:flex;gap:4px">
-              <button class="btn-secondary btn-sm" onclick="Pages.restorePatient('${p.id}')" title="Восстановить">♻️</button>
-              <button class="btn-secondary btn-sm" onclick="Pages.permanentDelete('${p.id}','${p.last_name} ${p.first_name}')" style="color:var(--c-danger)" title="Удалить навсегда">🗑</button>
-            </div>
+            <button class="btn-secondary btn-sm" onclick="Pages.restorePatient('${p.id}')">♻️ Восстановить</button>
           </div>`).join('')}
       </div>`;
   } catch(e) {
     document.getElementById('trashedContent').innerHTML = UI.empty('⚠️','Ошибка загрузки');
-  }
-};
-
-Pages.permanentDelete = async (id, name) => {
-  if (!confirm(`Удалить пациента ${name} НАВСЕГДА? Это действие нельзя отменить.`)) return;
-  const word = prompt('Для подтверждения введите слово УДАЛИТЬ');
-  if (word !== 'УДАЛИТЬ') return;
-
-  try {
-    await api.permanentDelete(id, { confirm_word: word });
-    UI.toast('Пациент окончательно удалён', 'success');
-    Pages.showDeletedPatients(); // Обновляем корзину
-  } catch(e) {
-    UI.toast(e.message || 'Ошибка удаления', 'error');
   }
 };
 

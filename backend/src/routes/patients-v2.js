@@ -6,16 +6,16 @@
 
 const express  = require('express');
 const router   = express.Router();
-const { query } = require('../db');   // путь подправьте под свою структуру
-const { authenticateToken, requireRole } = require('../middleware/auth');
+const { query } = require('../utils/db');   // Исправленный путь к БД
+const { authenticate, requireRole, authorize } = require('../middleware/auth');
 
 // Все роуты требуют авторизации
-router.use(authenticateToken);
+router.use(authenticate);
 
 // ─────────────────────────────────────────────────────────────
 // СПИСОК ПАЦИЕНТОВ  GET /api/patients
 // ─────────────────────────────────────────────────────────────
-router.get('/', async (req, res) => {
+router.get('/', authorize('patients:read'), async (req, res) => {
   try {
     const {
       search = '',
@@ -77,7 +77,7 @@ router.get('/', async (req, res) => {
 // ─────────────────────────────────────────────────────────────
 // СОЗДАТЬ ПАЦИЕНТА  POST /api/patients
 // ─────────────────────────────────────────────────────────────
-router.post('/', async (req, res) => {
+router.post('/', authorize('patients:write'), async (req, res) => {
   try {
     const {
       first_name, last_name, middle_name,
@@ -112,7 +112,7 @@ router.post('/', async (req, res) => {
 // ─────────────────────────────────────────────────────────────
 // КАРТОЧКА ПАЦИЕНТА  GET /api/patients/:id
 // ─────────────────────────────────────────────────────────────
-router.get('/:id', async (req, res) => {
+router.get('/:id', authorize('patients:read'), async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -230,7 +230,7 @@ router.get('/:id', async (req, res) => {
 // ─────────────────────────────────────────────────────────────
 // ОБНОВИТЬ ПАЦИЕНТА  PUT /api/patients/:id
 // ─────────────────────────────────────────────────────────────
-router.put('/:id', async (req, res) => {
+router.put('/:id', authorize('patients:write'), async (req, res) => {
   try {
     const { id } = req.params;
     const {
@@ -272,7 +272,7 @@ router.put('/:id', async (req, res) => {
 // ─────────────────────────────────────────────────────────────
 // SOFT DELETE  DELETE /api/patients/:id
 // ─────────────────────────────────────────────────────────────
-router.delete('/:id', requireRole(['chief_doctor', 'doctor']), async (req, res) => {
+router.delete('/:id', authorize('patients:delete'), async (req, res) => {
   try {
     const { id } = req.params;
     const { confirm_word, reason } = req.body;
@@ -313,7 +313,7 @@ router.delete('/:id', requireRole(['chief_doctor', 'doctor']), async (req, res) 
 // ─────────────────────────────────────────────────────────────
 // ВОССТАНОВИТЬ  POST /api/patients/:id/restore
 // ─────────────────────────────────────────────────────────────
-router.post('/:id/restore', requireRole(['chief_doctor']), async (req, res) => {
+router.post('/:id/restore', requireRole('chief_doctor'), async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -345,7 +345,7 @@ router.post('/:id/restore', requireRole(['chief_doctor']), async (req, res) => {
 // ─────────────────────────────────────────────────────────────
 // АНАМНЕЗ  GET/PUT /api/patients/:id/anamnesis
 // ─────────────────────────────────────────────────────────────
-router.get('/:id/anamnesis', async (req, res) => {
+router.get('/:id/anamnesis', authorize('patients:read'), async (req, res) => {
   try {
     const r = await query(
       `SELECT * FROM patient_anamnesis WHERE patient_id = $1`,
@@ -357,7 +357,7 @@ router.get('/:id/anamnesis', async (req, res) => {
   }
 });
 
-router.put('/:id/anamnesis', async (req, res) => {
+router.put('/:id/anamnesis', authorize('patients:write'), async (req, res) => {
   try {
     const { id } = req.params;
     const {
@@ -408,7 +408,7 @@ router.put('/:id/anamnesis', async (req, res) => {
 // ─────────────────────────────────────────────────────────────
 // ЗУБНАЯ ФОРМУЛА  GET/PUT /api/patients/:id/dental-chart
 // ─────────────────────────────────────────────────────────────
-router.get('/:id/dental-chart', async (req, res) => {
+router.get('/:id/dental-chart', authorize('patients:read'), async (req, res) => {
   try {
     const r = await query(
       `SELECT * FROM dental_chart WHERE patient_id = $1 ORDER BY tooth_num`,
@@ -420,7 +420,7 @@ router.get('/:id/dental-chart', async (req, res) => {
   }
 });
 
-router.put('/:id/dental-chart', async (req, res) => {
+router.put('/:id/dental-chart', authorize('patients:write'), async (req, res) => {
   try {
     const { id } = req.params;
     const { tooth_num, status, notes, surfaces, color } = req.body;
@@ -470,7 +470,7 @@ router.put('/:id/dental-chart', async (req, res) => {
 });
 
 // ИСТОРИЯ ЗУБА  GET /api/patients/:id/tooth/:num/history
-router.get('/:id/tooth/:num/history', async (req, res) => {
+router.get('/:id/tooth/:num/history', authorize('patients:read'), async (req, res) => {
   try {
     const r = await query(
       `SELECT th.*,
@@ -491,7 +491,7 @@ router.get('/:id/tooth/:num/history', async (req, res) => {
 // ─────────────────────────────────────────────────────────────
 // ПЛАН ЛЕЧЕНИЯ  POST/GET /api/patients/:id/treatment-plan
 // ─────────────────────────────────────────────────────────────
-router.get('/:id/treatment-plans', async (req, res) => {
+router.get('/:id/treatment-plans', authorize('patients:read'), async (req, res) => {
   try {
     const plans = await query(
       `SELECT tp.*,
@@ -526,7 +526,7 @@ router.get('/:id/treatment-plans', async (req, res) => {
   }
 });
 
-router.post('/:id/treatment-plan', async (req, res) => {
+router.post('/:id/treatment-plan', authorize('patients:write'), async (req, res) => {
   try {
     const { id } = req.params;
     const { title, notes, items = [] } = req.body;
@@ -570,7 +570,7 @@ router.post('/:id/treatment-plan', async (req, res) => {
 });
 
 // ВЫПОЛНИТЬ ПОЗИЦИЮ ПЛАНА  PATCH /api/patients/:id/treatment-plan/:planId/item/:itemId
-router.patch('/:id/treatment-plan/:planId/item/:itemId', async (req, res) => {
+router.patch('/:id/treatment-plan/:planId/item/:itemId', authorize('patients:write'), async (req, res) => {
   try {
     const { itemId } = req.params;
     const { status, completed_date } = req.body;
@@ -620,7 +620,7 @@ const upload = multer({
   },
 });
 
-router.post('/:id/files', upload.array('file', 10), async (req, res) => {
+router.post('/:id/files', authorize('files:write'), upload.array('file', 10), async (req, res) => {
   try {
     const { id } = req.params;
     const { file_type = 'document', notes } = req.body;

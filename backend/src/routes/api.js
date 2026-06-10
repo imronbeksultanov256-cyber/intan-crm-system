@@ -11,6 +11,7 @@ const patientsCtrl     = require('../controllers/patientsController');
 const appointmentsCtrl = require('../controllers/appointmentsController');
 const servicesCtrl     = require('../controllers/servicesController');
 const financeCtrl      = require('../controllers/financeController');
+const doctorsCtrl      = require('../controllers/doctorsController');
 
 // ── FILE UPLOAD SETUP ──────────────────────────────────────
 const storage = multer.diskStorage({
@@ -210,41 +211,21 @@ router.delete('/services/:id',
   authenticate, requireRole('chief_doctor'),
   servicesCtrl.remove);
 
-// ── DOCTORS (PUBLIC) ───────────────────────────────────────
-router.get('/doctors', async (req, res) => {
-  try {
-    const result = await query(
-      `SELECT d.*, u.first_name, u.last_name, u.middle_name, u.email, u.phone
-       FROM doctors d
-       JOIN users u ON u.id = d.user_id
-       WHERE d.is_visible = TRUE AND u.is_active = TRUE
-       ORDER BY u.last_name`
-    );
-    res.json(result.rows);
-  } catch (err) {
-    res.status(500).json({ error: 'Ошибка при загрузке врачей' });
-  }
-});
+// ── DOCTORS ────────────────────────────────────────────────
+router.get('/doctors', doctorsCtrl.list);   // public
+router.get('/doctors/:id', doctorsCtrl.get); // public
 
-router.get('/doctors/:id', async (req, res) => {
-  try {
-    const result = await query(
-      `SELECT d.*, u.first_name, u.last_name, u.middle_name
-       FROM doctors d JOIN users u ON u.id = d.user_id
-       WHERE d.id = $1`,
-      [req.params.id]
-    );
-    if (!result.rows[0]) return res.status(404).json({ error: 'Врач не найден' });
+router.put('/doctors/:id',
+  authenticate, requireRole('chief_doctor'),
+  doctorsCtrl.update);
 
-    const schedule = await query(
-      'SELECT * FROM doctor_schedule WHERE doctor_id = $1 ORDER BY day_of_week',
-      [req.params.id]
-    );
-    res.json({ ...result.rows[0], schedule: schedule.rows });
-  } catch (err) {
-    res.status(500).json({ error: 'Ошибка' });
-  }
-});
+router.put('/doctors/:id/schedule',
+  authenticate, requireRole('chief_doctor'),
+  doctorsCtrl.updateSchedule);
+
+router.get('/doctors/:id/stats',
+  authenticate, requireRole('chief_doctor', 'doctor'),
+  doctorsCtrl.stats);
 
 // ── FINANCE (chief_doctor only) ────────────────────────────
 router.get('/finance/dashboard',

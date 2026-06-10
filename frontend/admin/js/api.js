@@ -1,5 +1,7 @@
 // ── API CLIENT v2 ──────────────────────────────────────────
-const API_BASE = 'https://intan-backend.onrender.com/api';
+const API_BASE = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+  ? 'http://localhost:3001/api'
+  : 'https://intan-backend.onrender.com/api';
 
 const api = {
 
@@ -79,6 +81,7 @@ const api = {
   createPatient: (body)         => api.post('/patients', body),
   updatePatient: (id, body)     => api.put(`/patients/${id}`, body),
   deletePatient: (id, body)     => api.del(`/patients/${id}`, body),
+  permanentDelete:(id, body)     => api.del(`/patients/${id}/permanent`, body),
   restorePatient:(id)           => api.post(`/patients/${id}/restore`),
 
   // ── Анамнез ───────────────────────────────────────────────
@@ -118,8 +121,11 @@ const api = {
   createPayment:    (body)   => api.post('/finance/payments', body),
 
   // ── Doctors ───────────────────────────────────────────────
-  doctors: ()   => api.get('/doctors'),
-  doctor:  (id) => api.get(`/doctors/${id}`),
+  doctors: ()        => api.get('/doctors'),
+  doctor:  (id)      => api.get(`/doctors/${id}`),
+  updateDoctor: (id, b) => api.put(`/doctors/${id}`, b),
+  updateDoctorSchedule: (id, b) => api.put(`/doctors/${id}/schedule`, b),
+  getDoctorStats: (id) => api.get(`/doctors/${id}/stats`),
 
   // ── Users ─────────────────────────────────────────────────
   users:      ()     => api.get('/users'),
