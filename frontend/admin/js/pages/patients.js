@@ -171,9 +171,9 @@ Pages.loadPatientDetail = async (el, params) => {
           </div>
           <!-- Финансовый итог -->
           <div style="text-align:right;flex-shrink:0">
-            <div style="font-size:11px;color:var(--text-3);text-transform:uppercase;margin-bottom:2px">Оплачено</div>
-            <div style="font-size:1.3rem;font-weight:800;color:var(--c-primary)">${UI.fmtMoney(p.finance?.total_paid||0)}</div>
-            <div style="font-size:11px;color:var(--text-3)">${p.finance?.payment_count||0} платежей</div>
+            <div style="font-size:11px;color:var(--text-3);text-transform:uppercase;margin-bottom:2px">Долг</div>
+            <div style="font-size:1.3rem;font-weight:800;color:${p.finance?.debt > 0 ? 'var(--c-danger)' : 'var(--c-success)'}">${UI.fmtMoney(p.finance?.debt||0)}</div>
+            <div style="font-size:11px;color:var(--text-3)">Оплачено: ${UI.fmtMoney(p.finance?.total_paid||0)}</div>
           </div>
         </div>
         ${(p.allergies||p.chronic_diseases) ? `
@@ -697,9 +697,9 @@ Pages.softDeletePatient = (id, name) => {
 };
 
 Pages.confirmSoftDelete = async (id) => {
-  const confirm_word = document.getElementById('deleteConfirmWord')?.value?.trim();
+  const confirm_word = document.getElementById('deleteConfirmWord')?.value?.trim()?.toLowerCase();
   const reason       = document.getElementById('deleteReason')?.value?.trim();
-  if (!confirm_word || confirm_word.toUpperCase() !== 'УДАЛИТЬ') { UI.toast('Введите слово УДАЛИТЬ', 'error'); return; }
+  if (confirm_word !== 'удалить') { UI.toast('Введите слово УДАЛИТЬ', 'error'); return; }
   if (!reason || reason.length < 5) { UI.toast('Укажите причину удаления', 'error'); return; }
   try {
     await api.deletePatient(id, { confirm_word: 'УДАЛИТЬ', reason });
@@ -733,7 +733,7 @@ Pages.showDeletedPatients = async () => {
             </div>
             <div style="display:flex;gap:4px">
               <button class="btn-secondary btn-sm" onclick="Pages.restorePatient('${p.id}')" title="Восстановить">♻️</button>
-              <button class="btn-secondary btn-sm" onclick="Pages.permanentDelete('${p.id}','${p.last_name} ${p.first_name}')" style="color:var(--c-danger)" title="Удалить навсегда">🗑</button>
+              <button class="btn-secondary btn-sm" onclick="Pages.permanentDeletePatient('${p.id}','${p.last_name} ${p.first_name}')" style="color:var(--c-danger)" title="Удалить навсегда">🗑</button>
             </div>
           </div>`).join('')}
       </div>`;
@@ -742,15 +742,13 @@ Pages.showDeletedPatients = async () => {
   }
 };
 
-Pages.permanentDelete = async (id, name) => {
-  if (!confirm(`Удалить пациента ${name} НАВСЕГДА? Это действие нельзя отменить.`)) return;
-  const word = prompt('Для подтверждения введите слово УДАЛИТЬ');
-  if (word !== 'УДАЛИТЬ') return;
-
+Pages.permanentDeletePatient = async (id, name) => {
+  if (!confirm(`Вы уверены, что хотите НАВСЕГДА удалить данные пациента ${name}? Это действие нельзя отменить.`)) return;
   try {
-    await api.permanentDelete(id, { confirm_word: word });
-    UI.toast('Пациент окончательно удалён', 'success');
-    Pages.showDeletedPatients(); // Обновляем корзину
+    await api.del(`/patients/${id}/permanent`, { confirm_word: 'УДАЛИТЬ НАВСЕГДА' });
+    UI.toast('Пациент удалён окончательно', 'success');
+    UI.closeModal();
+    Pages.loadPatients(document.getElementById('page-patients'));
   } catch(e) {
     UI.toast(e.message || 'Ошибка удаления', 'error');
   }

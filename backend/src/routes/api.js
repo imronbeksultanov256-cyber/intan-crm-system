@@ -12,6 +12,7 @@ const appointmentsCtrl = require('../controllers/appointmentsController');
 const servicesCtrl     = require('../controllers/servicesController');
 const financeCtrl      = require('../controllers/financeController');
 const doctorsCtrl      = require('../controllers/doctorsController');
+const inventoryCtrl    = require('../controllers/inventoryController');
 
 // ── FILE UPLOAD SETUP ──────────────────────────────────────
 const storage = multer.diskStorage({
@@ -228,6 +229,31 @@ router.post('/finance/payments',
 router.get('/finance/export/excel',
   authenticate, requireRole('chief_doctor'),
   financeCtrl.exportExcel);
+
+// ── INVENTORY / СКЛАД ──────────────────────────────────────
+router.get('/inventory',
+  authenticate, requireRole('chief_doctor', 'admin'),
+  inventoryCtrl.list);
+
+router.post('/inventory',
+  authenticate, requireRole('chief_doctor'),
+  inventoryCtrl.create);
+
+router.put('/inventory/:id',
+  authenticate, requireRole('chief_doctor'),
+  inventoryCtrl.update);
+
+router.post('/inventory/transaction',
+  authenticate, requireRole('chief_doctor', 'admin'),
+  inventoryCtrl.transaction);
+
+router.get('/inventory/logs',
+  authenticate, requireRole('chief_doctor'),
+  inventoryCtrl.logs);
+
+router.get('/inventory/logs/:item_id',
+  authenticate, requireRole('chief_doctor'),
+  inventoryCtrl.logs);
 
 // ── ACTIVITY LOG ───────────────────────────────────────────
 router.get('/logs',

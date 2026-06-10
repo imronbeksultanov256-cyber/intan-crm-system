@@ -3,7 +3,6 @@ window.Pages = window.Pages || {};
 
 // ИСПРАВЛЕНО: Убрана лишняя 'P' в названии функции
 Pages.loadDashboard = async (el) => {
-  // 1. Рендерим базовую структуру страницы со скелетонами загрузки
   el.innerHTML = `
     <div class="page-header">
       <div>
@@ -19,6 +18,15 @@ Pages.loadDashboard = async (el) => {
       <div class="stats-grid" id="statsGrid">
         ${[1,2,3,4].map(() => `<div class="stat-card">${UI.skeleton(1,1)}</div>`).join('')}
       </div>
+      
+      <div class="card" style="margin-bottom:20px; border-left: 4px solid var(--c-warning)" id="requestsCard">
+        <div class="card__header" style="display:flex; justify-content: space-between">
+          <span class="card__title">🔔 Новые заявки с сайта</span>
+          <button class="btn-primary btn-xs" onclick="navigate('appointments', {status: 'requests'})">Все заявки</button>
+        </div>
+        <div class="card__body" id="requestsList">${UI.skeleton(3,2)}</div>
+      </div>
+
       <div class="grid-2" style="margin-bottom:20px">
         <div class="card" id="upcomingCard">
           <div class="card__header"><span class="card__title">Записи на сегодня</span></div>
@@ -33,13 +41,14 @@ Pages.loadDashboard = async (el) => {
   `;
 
   try {
-    // 2. Делаем запрос к бэкенду
-    const data = await api.dashboard();
+    const [data, reqs] = await Promise.all([
+      api.dashboard(),
+      api.appointments('?status=pending&limit=5')
+    ]);
     
-    // Если сессия истекла и api.js вернул null, выходим (перенаправление сработает внутри api.js)
     if (!data) return;
 
-    // 3. ОТРИСОВКА КАРТОЧЕК СТАТИСТИКИ
+    // Счётчики
     const s = data.stats;
     const statsGrid = document.getElementById('statsGrid');
     if (statsGrid && s) {
@@ -47,44 +56,63 @@ Pages.loadDashboard = async (el) => {
         <div class="stat-card stat-card--blue">
           <div class="stat-card__icon">📅</div>
           <div class="stat-card__label">Записи сегодня</div>
-          <div class="stat-card__value">${s.today_appointments}</div>
-          <div class="stat-card__sub">${s.today_completed} завершено</div>
+          <div class="stat-card__value">${s.todayAppointments || 0}</div>
+          <div class="stat-card__sub">${s.todayCompleted || 0} завершено</div>
         </div>
         <div class="stat-card stat-card--green">
           <div class="stat-card__icon">👤</div>
           <div class="stat-card__label">Новые пациенты</div>
-          <div class="stat-card__value">${s.new_patients_today}</div>
+          <div class="stat-card__value">${s.newPatientsToday || 0}</div>
           <div class="stat-card__sub">за сегодня</div>
         </div>
         <div class="stat-card stat-card--amber">
           <div class="stat-card__icon">💰</div>
           <div class="stat-card__label">Выручка сегодня</div>
-          <div class="stat-card__value">${UI.fmtMoney(s.today_revenue)}</div>
+          <div class="stat-card__value">${UI.fmtMoney(s.todayRevenue || 0)}</div>
           <div class="stat-card__sub">принято платежей</div>
         </div>
         <div class="stat-card stat-card--purple">
           <div class="stat-card__icon">✅</div>
           <div class="stat-card__label">Завершено приёмов</div>
-          <div class="stat-card__value">${s.today_completed}</div>
-          <div class="stat-card__sub">из ${s.today_appointments} запланированных</div>
+          <div class="stat-card__value">${s.todayCompleted || 0}</div>
+          <div class="stat-card__sub">из ${s.todayAppointments || 0} запланированных</div>
         </div>
       `;
     }
 
-    // Обновляем счетчик на кнопке в сайдбаре
-    const pending = data.upcoming ? data.upcoming.filter(a => a.status === 'pending').length : 0;
-    const badge = document.getElementById('pendingBadge');
-    if (badge) badge.textContent = pending;
+    // Заявки
+    const reqList = document.getElementById('requestsList');
+    const onlineReqs = (reqs || []).filter(a => !a.appointment_dt);
+    if (reqList) {
+      if (onlineReqs.length) {
+        reqList.innerHTML = `
+          <div style="display:flex; flex-direction:column; gap:10px">
+            ${onlineReqs.map(r => `
+              <div style="display:flex; align-items:center; justify-content: space-between; padding: 10px; background: var(--surface-2); border-radius: 8px">
+                <div>
+                  <div style="font-weight:600">${r.patient_name}</div>
+                  <div style="font-size:12px; color:var(--text-3)">${r.patient_phone} · ${UI.fmtDateTime(r.created_at)}</div>
+                </div>
+                <button class="btn-secondary btn-sm" onclick="navigate('appointments', {status: 'requests'})">Оформить</button>
+              </div>
+            `).join('')}
+          </div>
+        `;
+      } else {
+        reqList.innerHTML = UI.empty('📩', 'Новых заявок нет');
+      }
+    }
 
-    // 4. ОТРИСОВКА ПРЕДСТОЯЩИХ ЗАПИСЕЙ
+    // Предстоящие записи
     const upEl = document.getElementById('upcomingCard');
     if (upEl) {
-      if (data.upcoming && data.upcoming.length) {
+      const upcoming = (data.upcoming || []).filter(a => a.appointment_dt);
+      if (upcoming.length) {
         upEl.innerHTML = `
           <div class="card__header"><span class="card__title">Предстоящие записи</span></div>
           <div class="card__body">
             <div class="mini-calendar">
-              ${data.upcoming.map(a => `
+              ${upcoming.map(a => `
                 <div class="cal-slot cal-slot--${a.status}">
                   <span class="cal-slot__time">${new Date(a.appointment_dt).toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'})}</span>
                   <div>
@@ -108,16 +136,13 @@ Pages.loadDashboard = async (el) => {
       }
     }
 
-    // 5. ОТРИСОВКА ЖУРНАЛА ПОСЛЕДНИХ ДЕЙСТВИЙ
+    // Активность
     const actEl = document.getElementById('activityCard');
     if (actEl) {
       const actionLabels = {
-        LOGIN: '🔐 Вход',
-        LOGOUT: '🚪 Выход',
-        CREATE_PATIENT: '👤 Новый пациент',
-        UPDATE_PATIENT: '✏️ Обновление пациента',
-        CREATE_APPOINTMENT: '📅 Новая запись',
-        UPDATE_SERVICE: '💲 Изменение прайса',
+        LOGIN: '🔐 Вход', LOGOUT: '🚪 Выход', CREATE_PATIENT: '👤 Новый пациент',
+        UPDATE_PATIENT: '✏️ Обновление пациента', CREATE_APPOINTMENT: '📅 Новая запись',
+        UPDATE_SERVICE: '💲 Изменение прайса', DELETE_USER: '🗑 Удаление сотрудника'
       };
       
       actEl.innerHTML = `
@@ -131,9 +156,7 @@ Pages.loadDashboard = async (el) => {
                     <div style="font-weight:500">${actionLabels[a.action] || a.action}</div>
                     <div style="color:var(--text-3);font-size:11px">${a.user_name || 'Система'}</div>
                   </div>
-                  <div style="color:var(--text-3);font-size:11px;white-space:nowrap">
-                    ${UI.fmtDateTime(a.created_at)}
-                  </div>
+                  <div style="color:var(--text-3);font-size:11px;white-space:nowrap">${UI.fmtDateTime(a.created_at)}</div>
                 </div>
               `).join('')}
             </div>
@@ -141,72 +164,12 @@ Pages.loadDashboard = async (el) => {
         </div>
       `;
     }
-
   } catch (err) {
-    // Если поймали лимит запросов 429 или ошибку сервера — выводим красивую заглушку вместо падения
-    const isRateLimit = err.message && err.message.includes('много запросов');
-    const contentEl = document.getElementById('dashboardContent');
-    
-    if (contentEl) {
-      contentEl.innerHTML = `
-        <div class="empty-state" style="padding: 60px 20px; text-align: center; background: rgba(255,255,255,0.05); border-radius: 12px; margin-top: 20px;">
-          <div class="empty-state__icon" style="font-size: 40px; margin-bottom: 10px;">${isRateLimit ? '⏳' : '⚠️'}</div>
-          <div class="empty-state__text" style="font-weight: bold; font-size: 18px; margin-bottom: 8px;">
-            ${isRateLimit ? 'Слишком много запросов' : 'Не удалось загрузить дашборд'}
-          </div>
-          <div class="empty-state__sub" style="margin-bottom: 20px; color: #aaa; font-size: 14px;">
-            ${err.message || 'Проверьте подключение к серверу'}
-          </div>
-          <button class="btn-primary" onclick="Pages.loadDashboard(document.getElementById('page-dashboard'))" style="padding: 10px 20px; border-radius: 6px; cursor: pointer;">
-            Попробовать снова
-          </button>
-        </div>
-      `;
-    }
+     console.error(err);
   }
 };
 
-// ── ВРАЧИ КЛИНИКИ ──────────────────────────────────────────
-Pages.loadDoctors = async (el) => {
-  el.innerHTML = `
-    <div class="page-header">
-      <div><h1>Врачи клиники</h1></div>
-    </div>
-    <div id="doctorsGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px">
-      ${[1,2,3].map(() => `<div class="card" style="height:180px">${UI.skeleton(3,2)}</div>`).join('')}
-    </div>
-  `;
-
-  try {
-    const doctors = await api.doctors();
-    const grid = document.getElementById('doctorsGrid');
-    if (!doctors?.length) {
-      grid.innerHTML = UI.empty('🦷', 'Нет данных о врачах');
-      return;
-    }
-
-    grid.innerHTML = doctors.map(d => `
-      <div class="card" style="padding:20px">
-        <div style="display:flex;align-items:center;gap:14px;margin-bottom:14px">
-          <div style="width:52px;height:52px;border-radius:12px;background:var(--c-primary-bg);display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0">
-            ${d.photo_url ? `<img src="${d.photo_url}" style="width:52px;height:52px;border-radius:12px;object-fit:cover">` : '👨‍⚕️'}
-          </div>
-          <div>
-            <div style="font-weight:600;margin-bottom:2px">${d.last_name} ${d.first_name}</div>
-            <div style="font-size:12px;color:var(--text-3)">${d.specialization}</div>
-          </div>
-        </div>
-        <div style="display:flex;gap:12px;font-size:12px;color:var(--text-3)">
-          <span>🎓 ${d.experience_years} лет опыта</span>
-          ${d.phone ? `<span>📞 ${d.phone}</span>` : ''}
-        </div>
-        ${d.bio ? `<p style="font-size:12px;color:var(--text-2);margin-top:10px;line-height:1.5">${d.bio.slice(0,100)}${d.bio.length>100?'...':''}</p>` : ''}
-      </div>
-    `).join('');
-  } catch (e) {
-    document.getElementById('doctorsGrid').innerHTML = UI.empty('⚠️','Ошибка загрузки');
-  }
-};
+// ── УДАЛЕНО: loadDoctors (теперь в doctors.js) ──────────────────
 
 // ── СОТРУДНИКИ ─────────────────────────────────────────────
 Pages.loadUsers = async (el) => {

@@ -3,18 +3,18 @@ Pages.loadServices = async (el) => {
 
   el.innerHTML = `
     <div class="page-header">
-      <div><h1>Прайс-лист услуг</h1></div>
+      <div><h1>Процедуры и прайс</h1></div>
       <div style="display:flex;gap:10px">
         <a class="btn-secondary btn-sm" href="/api/services/export/pdf" target="_blank">
           📄 Экспорт PDF
         </a>
-        ${isChief ? `<button class="btn-primary" onclick="Pages.showAddServiceModal()">+ Добавить услугу</button>` : ''}
+        ${isChief ? `<button class="btn-primary" onclick="Pages.showAddServiceModal()">+ Добавить процедуру</button>` : ''}
       </div>
     </div>
     <div class="toolbar">
       <div class="search-wrap">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-        <input class="search-input" id="serviceSearch" placeholder="Поиск услуги..." />
+        <input class="search-input" id="serviceSearch" placeholder="Поиск процедуры..." />
       </div>
       <select class="form-select" id="serviceCategoryFilter" style="width:200px">
         <option value="">Все категории</option>
@@ -53,7 +53,7 @@ Pages.loadServices = async (el) => {
 function renderServices(grouped, isChief) {
   const el = document.getElementById('servicesContent');
   if (!grouped.length) {
-    el.innerHTML = UI.empty('💲', 'Услуги не найдены');
+    el.innerHTML = UI.empty('💲', 'Процедуры не найдены');
     return;
   }
 
@@ -61,12 +61,12 @@ function renderServices(grouped, isChief) {
     <div class="card" style="margin-bottom:16px">
       <div class="card__header" style="padding:16px 20px">
         <span class="card__title">${cat.name}</span>
-        <span style="font-size:12px;color:var(--text-3)">${cat.services.length} услуг</span>
+        <span style="font-size:12px;color:var(--text-3)">${cat.services.length} процедур</span>
       </div>
       <div class="data-table-wrap">
         <table class="data-table">
           <thead><tr>
-            <th>Название услуги</th>
+            <th>Название процедуры</th>
             <th>Длительность</th>
             <th style="text-align:right">Цена</th>
             ${isChief ? '<th style="text-align:right">Действия</th>' : ''}
@@ -101,14 +101,14 @@ function renderServices(grouped, isChief) {
 
 Pages.showAddServiceModal = async () => {
   const cats = await getCategoryOptions();
-  UI.showModal('Добавить услугу', `
+  UI.showModal('Добавить процедуру', `
     <form id="addServiceForm" style="display:flex;flex-direction:column;gap:14px">
       <div class="form-group">
         <label class="form-label">Категория *</label>
         <select class="form-select" name="category_id" required>${cats}</select>
       </div>
       <div class="form-group">
-        <label class="form-label">Название услуги *</label>
+        <label class="form-label">Название процедуры *</label>
         <input class="form-input" name="name" required placeholder="Пломбирование зуба" />
       </div>
       <div class="form-group">
@@ -135,7 +135,7 @@ Pages.showAddServiceModal = async () => {
     try {
       await api.createService(body);
       UI.closeModal();
-      UI.toast('Услуга добавлена', 'success');
+      UI.toast('Процедура добавлена', 'success');
       Pages.loadServices(document.getElementById('page-services'));
     } catch (err) {
       UI.toast(err.message, 'error');
@@ -144,10 +144,10 @@ Pages.showAddServiceModal = async () => {
 };
 
 Pages.showEditServiceModal = (id, name, price, duration, description, categoryId) => {
-  UI.showModal('Редактировать услугу', `
+  UI.showModal('Редактировать процедуру', `
     <form id="editServiceForm" style="display:flex;flex-direction:column;gap:14px">
       <div class="form-group">
-        <label class="form-label">Название услуги *</label>
+        <label class="form-label">Название процедуры *</label>
         <input class="form-input" name="name" value="${name}" required />
       </div>
       <div class="form-group">
@@ -182,7 +182,7 @@ Pages.showEditServiceModal = (id, name, price, duration, description, categoryId
     try {
       await api.updateService(id, body);
       UI.closeModal();
-      UI.toast('Услуга обновлена', 'success');
+      UI.toast('Процедура обновлена', 'success');
       Pages.loadServices(document.getElementById('page-services'));
     } catch (err) {
       UI.toast(err.message, 'error');
@@ -191,10 +191,10 @@ Pages.showEditServiceModal = (id, name, price, duration, description, categoryId
 };
 
 Pages.deleteService = async (id) => {
-  if (!UI.confirm('Деактивировать эту услугу?')) return;
+  if (!UI.confirm('Деактивировать эту процедуру?')) return;
   try {
     await api.deleteService(id);
-    UI.toast('Услуга деактивирована', 'success');
+    UI.toast('Процедура деактивирована', 'success');
     Pages.loadServices(document.getElementById('page-services'));
   } catch (e) {
     UI.toast(e.message, 'error');

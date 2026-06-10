@@ -157,8 +157,16 @@ exports.get = async (req, res) => {
 
     const payments = await query(
       `SELECT COALESCE(SUM(amount),0) AS total_paid, COUNT(*) AS payment_count
-       FROM payments WHERE patient_id = $1 AND status = 'paid'`, [id]
+       FROM payments WHERE patient_id = $1 AND status = 'paid' AND is_refunded = FALSE`, [id]
     );
+
+    const accrued = await query(
+      `SELECT COALESCE(SUM(total_cost),0) AS total_accrued
+       FROM treatment_records WHERE patient_id = $1`, [id]
+    );
+
+    const totalPaid    = parseFloat(payments.rows[0]?.total_paid    || 0);
+    const totalAccrued = parseFloat(accrued.rows[0]?.total_accrued || 0);
 
     res.json({
       ...patient.rows[0],
@@ -169,7 +177,9 @@ exports.get = async (req, res) => {
       treatments:      treatments.rows,
       files:           files.rows,
       finance: {
-        total_paid:    parseFloat(payments.rows[0]?.total_paid  || 0),
+        total_paid:    totalPaid,
+        total_accrued: totalAccrued,
+        debt:          Math.max(0, totalAccrued - totalPaid),
         payment_count: parseInt(payments.rows[0]?.payment_count || 0),
       },
     });

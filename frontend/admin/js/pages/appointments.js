@@ -420,7 +420,7 @@ Pages.changeApptStatus = async (id, status) => {
 };
 
 // ── Создание новой записи ─────────────────────────────────
-Pages.showCreateApptModal = async () => {
+Pages.showCreateApptModal = async (patientId = null) => {
   let doctors = [], svcFlat = [];
   try {
     const [d, s] = await Promise.all([api.doctors(), api.services()]);
@@ -430,7 +430,7 @@ Pages.showCreateApptModal = async () => {
 
   UI.showModal('Новая запись на приём', `
     <form id="createApptForm" style="display:flex;flex-direction:column;gap:14px">
-      <div class="form-group">
+      <div class="form-group" ${patientId ? 'style="display:none"' : ''}>
         <label class="form-label">Телефон пациента *</label>
         <div style="display:flex;gap:8px">
           <input class="form-input" id="apptPhone" placeholder="+996 XXX XXX XXX" style="flex:1" />
@@ -438,8 +438,8 @@ Pages.showCreateApptModal = async () => {
         </div>
         <div id="patientFound" style="font-size:12px;color:var(--c-accent);margin-top:4px"></div>
       </div>
-      <input type="hidden" id="apptPatientId" />
-      <div id="newPatientFields" style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <input type="hidden" id="apptPatientId" value="${patientId || ''}" />
+      <div id="newPatientFields" style="${patientId ? 'display:none' : 'display:grid;grid-template-columns:1fr 1fr;gap:12px'}">
         <div class="form-group">
           <label class="form-label">Фамилия *</label>
           <input class="form-input" id="apptLastName" />
@@ -474,7 +474,7 @@ Pages.showCreateApptModal = async () => {
         </div>
       </div>
       <div class="form-group">
-        <label class="form-label">Услуга</label>
+        <label class="form-label">Процедура</label>
         <select class="form-select" id="apptService">
           <option value="">Не выбрана</option>
           ${svcFlat.map(s => `<option value="${s.id}">${s.name} — ${s.price} сом</option>`).join('')}
@@ -487,6 +487,14 @@ Pages.showCreateApptModal = async () => {
       <button type="submit" class="btn-primary">Создать запись</button>
     </form>
   `);
+
+  if (patientId) {
+     try {
+       const p = await api.patient(patientId);
+       const foundEl = document.getElementById('patientFound');
+       if (foundEl) foundEl.textContent = `Пациент: ${p.last_name} ${p.first_name}`;
+     } catch(_) {}
+  }
 
   document.getElementById('createApptForm').addEventListener('submit', async (e) => {
     e.preventDefault();

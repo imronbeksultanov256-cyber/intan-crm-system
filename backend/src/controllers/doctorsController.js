@@ -1,14 +1,18 @@
 const { query } = require('../utils/db');
 
 // ══════════════════════════════════════════════════════════
-// GET /api/doctors — список всех врачей
+// GET /api/doctors — список всех врачей (все пользователи с ролью врач)
 // ══════════════════════════════════════════════════════════
 exports.list = async (req, res) => {
   try {
     const result = await query(
-      `SELECT d.*, u.first_name, u.last_name, u.middle_name, u.email, u.phone, u.is_active
-       FROM doctors d
-       JOIN users u ON u.id = d.user_id
+      `SELECT 
+         u.id as user_id, u.first_name, u.last_name, u.middle_name, u.email, u.phone, u.is_active,
+         d.id, COALESCE(d.specialization, 'Врач-стоматолог') as specialization, 
+         d.experience_years, d.photo_url, d.rating, d.cabinet
+       FROM users u
+       LEFT JOIN doctors d ON d.user_id = u.id
+       WHERE u.role_id = 2 AND u.is_active = TRUE
        ORDER BY u.last_name`
     );
     res.json(result.rows);
@@ -25,7 +29,11 @@ exports.get = async (req, res) => {
   const { id } = req.params;
   try {
     const doctor = await query(
-      `SELECT d.*, u.first_name, u.last_name, u.middle_name, u.email, u.phone, u.is_active
+      `SELECT 
+         u.id as user_id, u.first_name, u.last_name, u.middle_name, u.email, u.phone, u.is_active,
+         d.id, COALESCE(d.specialization, 'Врач-стоматолог') as specialization, 
+         d.experience_years, d.education, d.bio, d.photo_url, d.certificates, 
+         d.achievements, d.is_visible, d.cabinet, d.rating
        FROM doctors d
        JOIN users u ON u.id = d.user_id
        WHERE d.id = $1`,
