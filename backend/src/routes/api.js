@@ -380,26 +380,110 @@ router.get('/logs',
 );
 
 // ── USERS MANAGEMENT ──────────────────────────────────────
+async function checkUserRelations(userId) {
+  const docRes = await query('SELECT id FROM doctors WHERE user_id = $1', [userId]);
+  const doctorId = docRes.rows[0]?.id;
+
+  const counts = {
+    appointments: 0,
+    treatment_records: 0,
+    medical_records: 0,
+    patient_files: 0,
+    payments: 0,
+    notifications: 0,
+    schedule: 0,
+    activity_log: 0,
+    reminders: 0,
+    inventory_transactions: 0,
+    patients: 0,
+    services: 0,
+    leads: 0,
+  };
+
+  if (doctorId) {
+    const appRes = await query('SELECT COUNT(*) FROM appointments WHERE doctor_id = $1', [doctorId]);
+    counts.appointments += parseInt(appRes.rows[0].count);
+
+    const trRes = await query('SELECT COUNT(*) FROM treatment_records WHERE doctor_id = $1', [doctorId]);
+    counts.treatment_records += parseInt(trRes.rows[0].count);
+
+    const thRes = await query('SELECT COUNT(*) FROM tooth_history WHERE doctor_id = $1', [doctorId]);
+    counts.medical_records += parseInt(thRes.rows[0].count);
+
+    const tpRes = await query('SELECT COUNT(*) FROM treatment_plans WHERE doctor_id = $1', [doctorId]);
+    counts.medical_records += parseInt(tpRes.rows[0].count);
+
+    const schedRes = await query('SELECT COUNT(*) FROM doctor_schedule WHERE doctor_id = $1', [doctorId]);
+    counts.schedule += parseInt(schedRes.rows[0].count);
+
+    const leadsRes = await query('SELECT COUNT(*) FROM leads WHERE doctor_id = $1', [doctorId]);
+    counts.leads += parseInt(leadsRes.rows[0].count);
+
+    try {
+      const vacRes = await query('SELECT COUNT(*) FROM doctor_vacations WHERE doctor_id = $1', [doctorId]);
+      counts.schedule += parseInt(vacRes.rows[0].count);
+    } catch (_) {}
+  }
+
+  const appUserRes = await query('SELECT COUNT(*) FROM appointments WHERE created_by = $1 OR confirmed_by = $1', [userId]);
+  counts.appointments += parseInt(appUserRes.rows[0].count);
+
+  const filesRes = await query('SELECT COUNT(*) FROM patient_files WHERE uploaded_by = $1', [userId]);
+  counts.patient_files += parseInt(filesRes.rows[0].count);
+
+  const payRes = await query('SELECT COUNT(*) FROM payments WHERE received_by = $1', [userId]);
+  counts.payments += parseInt(payRes.rows[0].count);
+
+  const notifRes = await query('SELECT COUNT(*) FROM notifications WHERE user_id = $1', [userId]);
+  counts.notifications += parseInt(notifRes.rows[0].count);
+
+  const logRes = await query('SELECT COUNT(*) FROM activity_log WHERE user_id = $1', [userId]);
+  counts.activity_log += parseInt(logRes.rows[0].count);
+
+  const remRes = await query('SELECT COUNT(*) FROM reminders WHERE created_by = $1', [userId]);
+  counts.reminders += parseInt(remRes.rows[0].count);
+
+  const anamRes = await query('SELECT COUNT(*) FROM patient_anamnesis WHERE updated_by = $1', [userId]);
+  counts.medical_records += parseInt(anamRes.rows[0].count);
+
+  const chartRes = await query('SELECT COUNT(*) FROM dental_chart WHERE updated_by = $1', [userId]);
+  counts.medical_records += parseInt(chartRes.rows[0].count);
+
+  const planUserRes = await query('SELECT COUNT(*) FROM treatment_plans WHERE created_by = $1', [userId]);
+  counts.medical_records += parseInt(planUserRes.rows[0].count);
+
+  const invRes = await query('SELECT COUNT(*) FROM inventory_transactions WHERE user_id = $1', [userId]);
+  counts.inventory_transactions += parseInt(invRes.rows[0].count);
+
+  const patRes = await query('SELECT COUNT(*) FROM patients WHERE created_by = $1', [userId]);
+  counts.patients += parseInt(patRes.rows[0].count);
+
+  const svcRes = await query('SELECT COUNT(*) FROM services WHERE updated_by = $1', [userId]);
+  counts.services += parseInt(svcRes.rows[0].count);
+
+  return { counts, doctorId };
+}
+
 router.get('/users',
-  authenticate, requireRole('chief_doctor'),
+  authenticate, requireRole('chief_doctor', 'admin'),
   async (req, res) => {
     try {
       const result = await query(
         `SELECT u.id, u.email, u.first_name, u.last_name, u.phone,
-                u.is_active, u.last_login, u.created_at,
+                u.is_active, u.last_login, u.created_at, u.deleted_at, u.deleted_by,
                 r.name AS role, r.label AS role_label
          FROM users u JOIN roles r ON r.id = u.role_id
          ORDER BY r.id, u.last_name`
       );
       res.json(result.rows);
     } catch (err) {
-      res.status(500).json({ error: 'Ошибка' });
+      res.status(500).json({ error: 'Ошибка при загрузке сотрудников' });
     }
   }
 );
 
 router.post('/users',
-  authenticate, requireRole('chief_doctor'),
+  authenticate, requireRole('chief_doctor', 'admin'),
   async (req, res) => {
     const bcrypt = require('bcryptjs');
     const { email, password, first_name, last_name, phone, role_id } = req.body;
@@ -416,7 +500,6 @@ router.post('/users',
       );
       const newUser = result.rows[0];
 
-      // Если роль — врач (ID 2), создаём профиль в таблице doctors
       if (parseInt(role_id) === 2) {
         await query(
           `INSERT INTO doctors (user_id, specialization)
@@ -430,7 +513,138 @@ router.post('/users',
     } catch (err) {
       await query('ROLLBACK');
       if (err.code === '23505') return res.status(409).json({ error: 'Email уже используется' });
-      res.status(500).json({ error: 'Ошибка при создании пользователя' });
+      res.status(500).json({ error: 'Ошибка при создании сотрудника' });
+    }
+  }
+);
+
+router.put('/users/:id',
+  authenticate, requireRole('chief_doctor', 'admin'),
+  async (req, res) => {
+    const { id } = req.params;
+    const { email, password, first_name, last_name, phone, role_id } = req.body;
+    if (!email || !first_name || !last_name || !role_id) {
+      return res.status(400).json({ error: 'Поля Email, Имя, Фамилия и Роль обязательны' });
+    }
+    try {
+      await query('BEGIN');
+      const userRes = await query('SELECT * FROM users WHERE id = $1', [id]);
+      if (!userRes.rows[0]) {
+        await query('ROLLBACK');
+        return res.status(404).json({ error: 'Сотрудник не найден' });
+      }
+
+      let updateQuery = `
+        UPDATE users SET
+          email = $1,
+          first_name = $2,
+          last_name = $3,
+          phone = $4,
+          role_id = $5,
+          updated_at = NOW()
+      `;
+      const params = [email, first_name, last_name, phone || null, role_id];
+
+      if (password && password.trim().length >= 6) {
+        const bcrypt = require('bcryptjs');
+        const hash = await bcrypt.hash(password, 12);
+        updateQuery += `, password_hash = $6 WHERE id = $7`;
+        params.push(hash, id);
+      } else {
+        updateQuery += ` WHERE id = $6`;
+        params.push(id);
+      }
+
+      await query(updateQuery, params);
+
+      if (parseInt(role_id) === 2) {
+        const docCheck = await query('SELECT id FROM doctors WHERE user_id = $1', [id]);
+        if (!docCheck.rows[0]) {
+          await query(
+            `INSERT INTO doctors (user_id, specialization)
+             VALUES ($1, 'Врач-стоматолог')`,
+            [id]
+          );
+        }
+      }
+
+      await query('COMMIT');
+      await query(
+        `INSERT INTO activity_log (user_id, action, entity_type, entity_id)
+         VALUES ($1, 'UPDATE_USER', 'user', $2)`,
+        [req.user.id, id]
+      ).catch(() => {});
+
+      res.json({ success: true, message: 'Данные сотрудника обновлены' });
+    } catch (err) {
+      await query('ROLLBACK');
+      if (err.code === '23505') return res.status(409).json({ error: 'Email уже используется' });
+      res.status(500).json({ error: 'Ошибка при обновлении сотрудника' });
+    }
+  }
+);
+
+router.post('/users/:id/deactivate',
+  authenticate, requireRole('chief_doctor', 'admin'),
+  async (req, res) => {
+    const { id } = req.params;
+    if (id === req.user.id) {
+      return res.status(400).json({ error: 'Вы не можете деактивировать самого себя' });
+    }
+    try {
+      const user = await query('SELECT id FROM users WHERE id = $1', [id]);
+      if (!user.rows[0]) return res.status(404).json({ error: 'Сотрудник не найден' });
+
+      await query(
+        `UPDATE users SET
+          is_active = FALSE,
+          deleted_at = NOW(),
+          deleted_by = $1,
+          updated_at = NOW()
+         WHERE id = $2`,
+        [req.user.id, id]
+      );
+
+      await query(
+        `INSERT INTO activity_log (user_id, action, entity_type, entity_id)
+         VALUES ($1, 'DEACTIVATE_USER', 'user', $2)`,
+        [req.user.id, id]
+      ).catch(() => {});
+
+      res.json({ success: true, message: 'Сотрудник деактивирован' });
+    } catch (err) {
+      res.status(500).json({ error: 'Ошибка при деактивации сотрудника' });
+    }
+  }
+);
+
+router.post('/users/:id/restore',
+  authenticate, requireRole('chief_doctor', 'admin'),
+  async (req, res) => {
+    const { id } = req.params;
+    try {
+      const user = await query('SELECT id FROM users WHERE id = $1', [id]);
+      if (!user.rows[0]) return res.status(404).json({ error: 'Сотрудник не найден' });
+
+      await query(
+        `UPDATE users SET
+          is_active = TRUE,
+          deleted_at = NULL,
+          deleted_by = NULL,
+          updated_at = NOW()
+         WHERE id = $1`,
+        [id]
+      );
+
+      await query(
+        `INSERT INTO activity_log (user_id, action, entity_type, entity_id)
+         VALUES ($1, 'RESTORE_USER', 'user', $2)`,
+        [req.user.id, id]
+      ).catch(() => {});
+
+      res.json({ success: true, message: 'Сотрудник восстановлен' });
+    } catch (err) {
+      res.status(500).json({ error: 'Ошибка при восстановлении сотрудника' });
     }
   }
 );
@@ -443,22 +657,38 @@ router.delete('/users/:id',
       return res.status(400).json({ error: 'Вы не можете удалить самого себя' });
     }
     try {
-      // Проверяем существование
       const user = await query('SELECT id FROM users WHERE id = $1', [id]);
       if (!user.rows[0]) return res.status(404).json({ error: 'Сотрудник не найден' });
 
+      const { counts, doctorId } = await checkUserRelations(id);
+      const total = Object.values(counts).reduce((a, b) => a + b, 0);
+
+      if (total > 0) {
+        return res.status(400).json({
+          error: 'Невозможно удалить сотрудника.',
+          details: counts
+        });
+      }
+
+      await query('BEGIN');
+      if (doctorId) {
+        await query('DELETE FROM doctor_schedule WHERE doctor_id = $1', [doctorId]);
+        await query('DELETE FROM doctors WHERE id = $1', [doctorId]);
+      }
       await query('DELETE FROM users WHERE id = $1', [id]);
-      
+      await query('COMMIT');
+
       await query(
         `INSERT INTO activity_log (user_id, action, entity_type, entity_id)
-         VALUES ($1, 'DELETE_USER', 'user', $2)`,
+         VALUES ($1, 'PERMANENT_DELETE_USER', 'user', $2)`,
         [req.user.id, id]
       ).catch(() => {});
 
       res.json({ success: true, message: 'Сотрудник удалён' });
     } catch (err) {
+      await query('ROLLBACK');
       console.error('[users.delete]', err.message);
-      res.status(500).json({ error: 'Ошибка при удалении сотрудника. Возможно, у него есть связанные записи (врач, приёмы).' });
+      res.status(500).json({ error: 'Ошибка при полном удалении сотрудника' });
     }
   }
 );

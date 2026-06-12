@@ -352,6 +352,12 @@ body {
 .nav-link--chief { display: none; }
 .role-chief .nav-link--chief { display: flex; }
 
+/* Chief and Admin items */
+.nav-link--chief-admin { display: none; }
+.role-chief .nav-link--chief-admin,
+.role-admin .nav-link--chief-admin { display: flex; }
+
+
 .sidebar__footer {
   padding: 12px;
   border-top: 1px solid rgba(255,255,255,0.06);

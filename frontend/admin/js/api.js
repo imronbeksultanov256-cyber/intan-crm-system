@@ -51,8 +51,15 @@ const api = {
 
     if (!res.ok) {
       let msg = `HTTP ${res.status}`;
-      try { const b = await res.json(); msg = b.error || b.message || msg; } catch (_) {}
-      throw new Error(msg);
+      let details = null;
+      try {
+        const b = await res.json();
+        msg = b.error || b.message || msg;
+        details = b.details || null;
+      } catch (_) {}
+      const err = new Error(msg);
+      err.details = details;
+      throw err;
     }
 
     const ct = res.headers.get('content-type') || '';
@@ -141,6 +148,9 @@ const api = {
   // ── Users ─────────────────────────────────────────────────
   users:      ()     => api.get('/users'),
   createUser: (body) => api.post('/users', body),
+  updateUser: (id, body) => api.put(`/users/${id}`, body),
+  deactivateUser: (id) => api.post(`/users/${id}/deactivate`),
+  restoreUser: (id) => api.post(`/users/${id}/restore`),
 
   // ── Logs ──────────────────────────────────────────────────
   logs: () => api.get('/logs'),
