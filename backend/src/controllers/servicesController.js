@@ -115,8 +115,6 @@ exports.remove = async (req, res) => {
 
 // ── GET /api/services/pdf ─────────────────────────────────
 exports.exportPDF = async (req, res) => {
-  const PDFDocument = require('pdfkit');
-
   try {
     const result = await query(
       `SELECT s.name, s.price, s.duration_min, sc.name AS category
@@ -124,31 +122,14 @@ exports.exportPDF = async (req, res) => {
        WHERE s.is_active = TRUE
        ORDER BY sc.sort_order, s.sort_order`
     );
-
-    const doc = new PDFDocument({ margin: 40 });
-    res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', 'attachment; filename=pricelist.pdf');
-    doc.pipe(res);
-
-    doc.fontSize(18).text('Стоматологическая клиника «Интан»', { align: 'center' });
-    doc.fontSize(14).text('Прайс-лист услуг', { align: 'center' });
-    doc.moveDown();
-
-    let currentCat = '';
-    result.rows.forEach(row => {
-      if (row.category !== currentCat) {
-        currentCat = row.category;
-        doc.moveDown().fontSize(12).text(currentCat, { underline: true });
-      }
-      doc.fontSize(10).text(
-        `${row.name}  —  ${row.price} сом  (${row.duration_min} мин)`,
-        { indent: 20 }
-      );
+    // Return JSON for client-side PDF generation
+    res.json({
+      title: 'Прайс-лист клиники «Интан»',
+      generatedAt: new Date().toISOString(),
+      services: result.rows
     });
-
-    doc.end();
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: 'Ошибка при генерации PDF' });
+    res.status(500).json({ error: 'Ошибка при получении данных' });
   }
 };

@@ -305,21 +305,95 @@ Pages.exportFinanceExcel = () => {
     .catch(() => UI.toast('Ошибка экспорта', 'error'));
 };
 
-Pages.exportFinancePdf = () => {
+Pages.exportFinancePdf = async () => {
   const from = document.getElementById('payFromDate')?.value || '';
   const to   = document.getElementById('payToDate')?.value   || '';
   const token = api.getToken();
-  let url = `${api.baseUrl}/finance/export/pdf?`;
-  if (from) url += `from=${from}&`;
-  if (to)   url += `to=${to}`;
   
-  fetch(url, { headers: { Authorization: `Bearer ${token}` } })
-    .then(r => r.blob())
-    .then(blob => {
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
-      a.download = `finance_${from||'all'}.pdf`;
-      a.click();
-    })
-    .catch(() => UI.toast('Ошибка экспорта PDF', 'error'));
+  UI.toast('Формируется PDF...', 'info');
+
+  try {
+    // Fetch data from updated JSON endpoint
+    let url = `${api.baseUrl}/finance/export/pdf?`;
+    if (from) url += `from=${from}&`;
+    if (to)   url += `to=${to}`;
+    
+    const r = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+    if (!r.ok) throw new Error('Ошибка сервера');
+    const data = await r.json();
+
+    // Load jsPDF + autotable if not already loaded
+    if (!window.jsPDF) {
+      await new Promise((resolve, reject) => {
+        const s1 = document.createElement('script');
+        s1.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
+        s1.onload = () => {
+          const s2 = document.createElement('script');
+          s2.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js';
+          s2.onload = resolve;
+          s2.onerror = reject;
+          document.head.appendChild(s2);
+        };
+        s1.onerror = reject;
+        document.head.appendChild(s1);
+      });
+    }
+
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+
+    const methodLabels = { cash: 'Наличные', card: 'Банк. карта', transfer: 'Перевод' };
+    const statusLabels = { paid: 'Оплачено', pending: 'Ожидает', refunded: 'Возврат' };
+
+    const periodText = `${from ? new Date(from).toLocaleDateString('ru-RU') : 'начало'} — ${to ? new Date(to).toLocaleDateString('ru-RU') : 'сегодня'}`;
+
+    // Title
+    doc.setFontSize(16);
+    doc.setTextColor(27, 79, 114);
+    doc.text('Финансовый отчёт клиники «Интан»', 148, 18, { align: 'center' });
+    doc.setFontSize(10);
+    doc.setTextColor(100, 100, 100);
+    doc.text(`Период: ${periodText}`, 148, 25, { align: 'center' });
+    doc.text(`Сформировано: ${new Date().toLocaleString('ru-RU')}`, 148, 31, { align: 'center' });
+
+    // Table
+    const tableRows = data.rows.map((r, i) => [
+      i + 1,
+      r.paid_at ? new Date(r.paid_at).toLocaleString('ru-RU') : '—',
+      r.patient || '—',
+      `${parseFloat(r.amount || 0).toLocaleString('ru-RU')} сом`,
+      methodLabels[r.payment_method] || r.payment_method || '—',
+      statusLabels[r.status] || r.status || '—',
+      r.received_by || '—'
+    ]);
+
+    doc.autoTable({
+      startY: 36,
+      head: [['№', 'Дата и время', 'Пациент', 'Сумма', 'Способ оплаты', 'Статус', 'Принял']],
+      body: tableRows,
+      foot: [['', '', 'ИТОГО:', `${data.total.toLocaleString('ru-RU')} сом`, '', '', '']],
+      headStyles: { fillColor: [27, 108, 168], textColor: 255, fontStyle: 'bold', halign: 'center' },
+      footStyles: { fillColor: [232, 245, 233], textColor: [13, 110, 26], fontStyle: 'bold' },
+      alternateRowStyles: { fillColor: [240, 247, 255] },
+      columnStyles: {
+        0: { halign: 'center', cellWidth: 10 },
+        3: { halign: 'right', fontStyle: 'bold', textColor: [27, 108, 168] },
+        5: { halign: 'center' },
+      },
+      styles: { fontSize: 9, cellPadding: 3 },
+      margin: { left: 10, right: 10 },
+      didDrawPage: (data) => {
+        doc.setFontSize(8);
+        doc.setTextColor(150);
+        doc.text(`Страница ${data.pageNumber}`, 148, doc.internal.pageSize.height - 6, { align: 'center' });
+      }
+    });
+
+    const filename = `finance_${from||'all'}_${to||'all'}.pdf`;
+    doc.save(filename);
+    UI.toast('PDF успешно сохранён', 'success');
+  } catch (e) {
+    console.error(e);
+    UI.toast('Ошибка создания PDF', 'error');
+  }
 };

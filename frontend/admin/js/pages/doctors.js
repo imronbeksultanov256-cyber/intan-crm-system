@@ -59,10 +59,11 @@ Pages.loadDoctors = async (el) => {
 };
 
 Pages.showDoctorDetail = async (id) => {
+  const isChief = App.user?.role === 'chief_doctor';
   UI.showModal('Карточка врача', `<div id="docDetailContent">${UI.pageLoader()}</div>`);
   try {
     const d = await api.doctor(id);
-    const stats = await api.getDoctorStats(id);
+    const stats = await api.getDoctorStats(id).catch(() => null);
     const summary = stats?.summary || { unique_patients: 0, total_completed: 0, total_revenue: 0 };
     
     document.getElementById('docDetailContent').innerHTML = `

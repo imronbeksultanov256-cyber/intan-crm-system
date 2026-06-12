@@ -254,11 +254,11 @@ Pages.loadUsers = async (el) => {
     <div class="page-header">
       <div><h1>Сотрудники</h1></div>
       <div style="display:flex;gap:10px">
-        <select class="form-select" id="staffRoleFilter" style="width:160px">
-          <option value="">Все роли</option>
-          <option value="chief_doctor">Главный врач</option>
-          <option value="doctor">Врач</option>
-          <option value="admin">Администратор</option>
+        <select class="form-select" id="staffRoleFilter" style="width:200px">
+          <option value="">Все сотрудники</option>
+          <option value="chief_doctor">🩺 Руководящий врач</option>
+          <option value="doctor">👨‍⚕️ Лечащий врач</option>
+          <option value="admin">🗂 Администратор клиники</option>
         </select>
         <button class="btn-primary" onclick="Pages.showAddUserModal()">+ Добавить</button>
       </div>

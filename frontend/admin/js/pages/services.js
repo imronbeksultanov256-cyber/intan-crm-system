@@ -5,6 +5,9 @@ Pages.loadServices = async (el) => {
     <div class="page-header">
       <div><h1>Прайс-лист услуг</h1></div>
       <div style="display:flex;gap:10px">
+        <button class="btn-secondary btn-sm" onclick="Pages.exportServicesExcel()">
+          📊 Excel
+        </button>
         <button class="btn-secondary btn-sm" onclick="Pages.exportServicesPdf()">
           📄 Экспорт PDF
         </button>
@@ -190,19 +193,90 @@ Pages.showEditServiceModal = (id, name, price, duration, description, categoryId
   });
 };
 
-Pages.exportServicesPdf = () => {
+Pages.exportServicesPdf = async () => {
   const token = api.getToken();
   const url = `${api.baseUrl}/services/export/pdf`;
-  
-  fetch(url, { headers: { Authorization: `Bearer ${token}` } })
-    .then(r => r.blob())
-    .then(blob => {
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
-      a.download = `price_list.pdf`;
-      a.click();
-    })
-    .catch(() => UI.toast('Ошибка экспорта PDF', 'error'));
+
+  UI.toast('Формируется прайс-лист...', 'info');
+
+  try {
+    const r = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+    if (!r.ok) throw new Error();
+    const data = await r.json();
+
+    if (!window.jsPDF) {
+      await new Promise((resolve, reject) => {
+        const s1 = document.createElement('script');
+        s1.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
+        s1.onload = () => {
+          const s2 = document.createElement('script');
+          s2.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js';
+          s2.onload = resolve; s2.onerror = reject;
+          document.head.appendChild(s2);
+        };
+        s1.onerror = reject;
+        document.head.appendChild(s1);
+      });
+    }
+
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+
+    // Header
+    doc.setFontSize(16);
+    doc.setTextColor(27, 79, 114);
+    doc.text('Стоматологическая клиника «Интан»', 105, 16, { align: 'center' });
+    doc.setFontSize(12);
+    doc.setTextColor(80, 80, 80);
+    doc.text('Прайс-лист услуг', 105, 23, { align: 'center' });
+    doc.setFontSize(9);
+    doc.setTextColor(130, 130, 130);
+    doc.text(`Дата: ${new Date().toLocaleDateString('ru-RU')}`, 105, 29, { align: 'center' });
+
+    // Group by category
+    const grouped = {};
+    data.services.forEach(s => {
+      if (!grouped[s.category]) grouped[s.category] = [];
+      grouped[s.category].push(s);
+    });
+
+    const tableRows = [];
+    Object.entries(grouped).forEach(([cat, services]) => {
+      tableRows.push([{ content: cat, colSpan: 3, styles: { fillColor: [27, 108, 168], textColor: 255, fontStyle: 'bold', fontSize: 10 } }]);
+      services.forEach((s, i) => {
+        tableRows.push([
+          s.name,
+          `${s.duration_min} мин`,
+          `${parseFloat(s.price).toLocaleString('ru-RU')} сом`
+        ]);
+      });
+    });
+
+    doc.autoTable({
+      startY: 34,
+      head: [['Наименование процедуры', 'Длительность', 'Стоимость']],
+      body: tableRows,
+      headStyles: { fillColor: [27, 108, 168], textColor: 255, fontStyle: 'bold' },
+      alternateRowStyles: { fillColor: [248, 252, 255] },
+      columnStyles: {
+        0: { cellWidth: 120 },
+        1: { halign: 'center', cellWidth: 30 },
+        2: { halign: 'right', fontStyle: 'bold', textColor: [27, 108, 168], cellWidth: 35 }
+      },
+      styles: { fontSize: 9, cellPadding: 2.5 },
+      margin: { left: 10, right: 10 },
+      didDrawPage: (d) => {
+        doc.setFontSize(8);
+        doc.setTextColor(150);
+        doc.text(`Страница ${d.pageNumber}`, 105, doc.internal.pageSize.height - 6, { align: 'center' });
+      }
+    });
+
+    doc.save('price_list.pdf');
+    UI.toast('Прайс-лист сохранён', 'success');
+  } catch (e) {
+    UI.toast('Ошибка создания PDF', 'error');
+  }
 };
 
 Pages.deleteService = async (id) => {
@@ -213,6 +287,46 @@ Pages.deleteService = async (id) => {
     Pages.loadServices(document.getElementById('page-services'));
   } catch (e) {
     UI.toast(e.message, 'error');
+  }
+};
+
+Pages.exportServicesExcel = async () => {
+  const token = api.getToken();
+  const url = `${api.baseUrl}/services/export/pdf`;
+
+  UI.toast('Формируется Excel...', 'info');
+  try {
+    const r = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+    if (!r.ok) throw new Error();
+    const data = await r.json();
+
+    if (!window.XLSX) {
+      await new Promise((resolve, reject) => {
+        const s = document.createElement('script');
+        s.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+        s.onload = resolve; s.onerror = reject;
+        document.head.appendChild(s);
+      });
+    }
+
+    const wb = XLSX.utils.book_new();
+    const rows = [['Категория', 'Процедура', 'Длительность (мин)', 'Цена (сом)']];
+    const grouped = {};
+    data.services.forEach(s => {
+      if (!grouped[s.category]) grouped[s.category] = [];
+      grouped[s.category].push(s);
+    });
+    Object.entries(grouped).forEach(([cat, services]) => {
+      services.forEach(s => rows.push([cat, s.name, s.duration_min, parseFloat(s.price)]));
+    });
+
+    const ws = XLSX.utils.aoa_to_sheet(rows);
+    ws['!cols'] = [{ wch: 22 }, { wch: 40 }, { wch: 20 }, { wch: 16 }];
+    XLSX.utils.book_append_sheet(wb, ws, 'Прайс-лист');
+    XLSX.writeFile(wb, 'price_list.xlsx');
+    UI.toast('Excel сохранён', 'success');
+  } catch (e) {
+    UI.toast('Ошибка экспорта', 'error');
   }
 };
 
