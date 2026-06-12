@@ -388,15 +388,7 @@ async function checkUserRelations(userId) {
     appointments: 0,
     treatment_records: 0,
     medical_records: 0,
-    patient_files: 0,
     payments: 0,
-    notifications: 0,
-    schedule: 0,
-    activity_log: 0,
-    reminders: 0,
-    inventory_transactions: 0,
-    patients: 0,
-    services: 0,
     leads: 0,
   };
 
@@ -413,53 +405,12 @@ async function checkUserRelations(userId) {
     const tpRes = await query('SELECT COUNT(*) FROM treatment_plans WHERE doctor_id = $1', [doctorId]);
     counts.medical_records += parseInt(tpRes.rows[0].count);
 
-    const schedRes = await query('SELECT COUNT(*) FROM doctor_schedule WHERE doctor_id = $1', [doctorId]);
-    counts.schedule += parseInt(schedRes.rows[0].count);
-
     const leadsRes = await query('SELECT COUNT(*) FROM leads WHERE doctor_id = $1', [doctorId]);
     counts.leads += parseInt(leadsRes.rows[0].count);
-
-    try {
-      const vacRes = await query('SELECT COUNT(*) FROM doctor_vacations WHERE doctor_id = $1', [doctorId]);
-      counts.schedule += parseInt(vacRes.rows[0].count);
-    } catch (_) {}
   }
-
-  const appUserRes = await query('SELECT COUNT(*) FROM appointments WHERE created_by = $1 OR confirmed_by = $1', [userId]);
-  counts.appointments += parseInt(appUserRes.rows[0].count);
-
-  const filesRes = await query('SELECT COUNT(*) FROM patient_files WHERE uploaded_by = $1', [userId]);
-  counts.patient_files += parseInt(filesRes.rows[0].count);
 
   const payRes = await query('SELECT COUNT(*) FROM payments WHERE received_by = $1', [userId]);
   counts.payments += parseInt(payRes.rows[0].count);
-
-  const notifRes = await query('SELECT COUNT(*) FROM notifications WHERE user_id = $1', [userId]);
-  counts.notifications += parseInt(notifRes.rows[0].count);
-
-  const logRes = await query('SELECT COUNT(*) FROM activity_log WHERE user_id = $1', [userId]);
-  counts.activity_log += parseInt(logRes.rows[0].count);
-
-  const remRes = await query('SELECT COUNT(*) FROM reminders WHERE created_by = $1', [userId]);
-  counts.reminders += parseInt(remRes.rows[0].count);
-
-  const anamRes = await query('SELECT COUNT(*) FROM patient_anamnesis WHERE updated_by = $1', [userId]);
-  counts.medical_records += parseInt(anamRes.rows[0].count);
-
-  const chartRes = await query('SELECT COUNT(*) FROM dental_chart WHERE updated_by = $1', [userId]);
-  counts.medical_records += parseInt(chartRes.rows[0].count);
-
-  const planUserRes = await query('SELECT COUNT(*) FROM treatment_plans WHERE created_by = $1', [userId]);
-  counts.medical_records += parseInt(planUserRes.rows[0].count);
-
-  const invRes = await query('SELECT COUNT(*) FROM inventory_transactions WHERE user_id = $1', [userId]);
-  counts.inventory_transactions += parseInt(invRes.rows[0].count);
-
-  const patRes = await query('SELECT COUNT(*) FROM patients WHERE created_by = $1', [userId]);
-  counts.patients += parseInt(patRes.rows[0].count);
-
-  const svcRes = await query('SELECT COUNT(*) FROM services WHERE updated_by = $1', [userId]);
-  counts.services += parseInt(svcRes.rows[0].count);
 
   return { counts, doctorId };
 }
@@ -671,8 +622,26 @@ router.delete('/users/:id',
       }
 
       await query('BEGIN');
+      
+      // Automatic cleanup of audit logs, notifications, and metadata references
+      await query('UPDATE activity_log SET user_id = NULL WHERE user_id = $1', [id]);
+      await query('DELETE FROM notifications WHERE user_id = $1', [id]);
+      await query('UPDATE reminders SET created_by = NULL WHERE created_by = $1', [id]);
+      await query('UPDATE services SET updated_by = NULL WHERE updated_by = $1', [id]);
+      await query('UPDATE patients SET created_by = NULL WHERE created_by = $1', [id]);
+      await query('UPDATE patient_files SET uploaded_by = NULL WHERE uploaded_by = $1', [id]);
+      await query('UPDATE patient_anamnesis SET updated_by = NULL WHERE updated_by = $1', [id]);
+      await query('UPDATE dental_chart SET updated_by = NULL WHERE updated_by = $1', [id]);
+      await query('UPDATE treatment_plans SET created_by = NULL WHERE created_by = $1', [id]);
+      await query('UPDATE inventory_transactions SET user_id = NULL WHERE user_id = $1', [id]);
+      await query('UPDATE appointments SET created_by = NULL WHERE created_by = $1', [id]);
+      await query('UPDATE appointments SET confirmed_by = NULL WHERE confirmed_by = $1', [id]);
+
       if (doctorId) {
         await query('DELETE FROM doctor_schedule WHERE doctor_id = $1', [doctorId]);
+        try {
+          await query('DELETE FROM doctor_vacations WHERE doctor_id = $1', [doctorId]);
+        } catch (_) {}
         await query('DELETE FROM doctors WHERE id = $1', [doctorId]);
       }
       await query('DELETE FROM users WHERE id = $1', [id]);
