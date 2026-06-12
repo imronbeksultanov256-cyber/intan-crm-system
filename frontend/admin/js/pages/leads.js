@@ -107,66 +107,135 @@ Pages.deleteLead = async (id) => {
 };
 
 Pages.convertLeadToPatient = async (leadId) => {
-  // Загружаем данные заявки
   try {
     const leads = await api.leads();
     const lead = leads.find(l => l.id === leadId);
     if (!lead) return;
 
-    // Открываем модалку создания записи, предзаполнив данные
-    // Но сначала нужно найти или создать пациента
+    // Пытаемся найти пациента по телефону
+    let existingPatient = null;
+    try {
+      const res = await api.patients(`?search=${encodeURIComponent(lead.phone)}&limit=1`);
+      if (res?.data?.[0]) existingPatient = res.data[0];
+    } catch(_) {}
+
+    const nameParts = lead.name.trim().split(' ');
+    const lastName  = nameParts[0] || '';
+    const firstName = nameParts[1] || '';
+    const middleName = nameParts[2] || '';
+
+    // Загружаем врачей и услуги для формы
+    const [doctors, svcsRes] = await Promise.all([
+      api.doctors().catch(() => []),
+      api.services().catch(() => ({ grouped: [] }))
+    ]);
+    const services = (svcsRes.grouped || []).flatMap(g => g.services || []);
+
+    const pref = lead.preferred_dt
+      ? new Date(lead.preferred_dt).toLocaleString('ru-RU', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' })
+      : 'Не указано';
+
     UI.showModal('Оформление заявки', `
-      <div style="margin-bottom:16px">
-        <p>Клиент: <b>${lead.name}</b></p>
-        <p>Телефон: <b>${lead.phone}</b></p>
+      <div style="background:var(--surface-2);border-radius:10px;padding:12px 14px;margin-bottom:16px;font-size:13px;display:flex;flex-direction:column;gap:4px">
+        <div><b>Клиент:</b> ${lead.name}</div>
+        <div><b>Телефон:</b> ${lead.phone}</div>
+        ${lead.email ? `<div><b>Email:</b> ${lead.email}</div>` : ''}
+        <div><b>Желаемое время:</b> ${pref}</div>
+        ${lead.comment ? `<div><b>Комментарий:</b> ${lead.comment}</div>` : ''}
+        ${existingPatient
+          ? `<div style="color:var(--c-accent);font-weight:600;margin-top:4px">✓ Пациент найден в базе: ${existingPatient.last_name} ${existingPatient.first_name}</div>`
+          : `<div style="color:var(--c-warning);font-weight:600;margin-top:4px">⚠ Новый пациент — будет создан автоматически</div>`
+        }
       </div>
-      <button class="btn-primary btn-block" onclick="Pages._processLeadStep2('${leadId}')">Продолжить оформление</button>
+
+      <form id="leadConvertForm" style="display:flex;flex-direction:column;gap:12px">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+          <div class="form-group">
+            <label class="form-label">Врач *</label>
+            <select class="form-select" id="lcDoctor" required>
+              <option value="">Выберите врача</option>
+              ${doctors.map(d => `<option value="${d.id}" ${lead.doctor_id === d.id ? 'selected' : ''}>${d.last_name} ${d.first_name}</option>`).join('')}
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Услуга</label>
+            <select class="form-select" id="lcService">
+              <option value="">Не выбрана</option>
+              ${services.map(s => `<option value="${s.id}" ${lead.service_id === s.id ? 'selected' : ''}>${s.name}</option>`).join('')}
+            </select>
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+          <div class="form-group">
+            <label class="form-label">Дата *</label>
+            <input class="form-input" type="date" id="lcDate" value="${lead.preferred_dt ? lead.preferred_dt.slice(0,10) : ''}" required />
+          </div>
+          <div class="form-group">
+            <label class="form-label">Время *</label>
+            <input class="form-input" type="time" id="lcTime" value="${lead.preferred_dt ? lead.preferred_dt.slice(11,16) : ''}" required />
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Комментарий</label>
+          <textarea class="form-textarea" id="lcComment" rows="2">${lead.comment || ''}</textarea>
+        </div>
+        <button type="submit" class="btn-primary">✓ Создать запись и оформить</button>
+      </form>
     `);
-  } catch (e) { UI.toast(e.message, 'error'); }
-};
 
-Pages._processLeadStep2 = async (leadId) => {
-  const leads = await api.leads();
-  const lead = leads.find(l => l.id === leadId);
-  
-  // 1. Пытаемся найти пациента по телефону
-  let patientId = null;
-  try {
-    const res = await api.patients(`?search=${encodeURIComponent(lead.phone)}&limit=1`);
-    if (res?.data?.[0]) patientId = res.data[0].id;
-  } catch(_) {}
+    document.getElementById('leadConvertForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const doctorId  = document.getElementById('lcDoctor').value;
+      const serviceId = document.getElementById('lcService').value;
+      const date      = document.getElementById('lcDate').value;
+      const time      = document.getElementById('lcTime').value;
+      const comment   = document.getElementById('lcComment').value;
 
-  UI.closeModal();
-  
-  // Открываем стандартную модалку создания записи
-  await Pages.showCreateApptModal(patientId);
-  
-  // Предзаполняем поля если пациент новый
-  if (!patientId) {
-    const nameParts = lead.name.split(' ');
-    document.getElementById('apptPhone').value = lead.phone;
-    document.getElementById('apptLastName').value = nameParts[0] || '';
-    document.getElementById('apptFirstName').value = nameParts[1] || '';
-    
-    // Показываем поля ФИО
-    document.getElementById('newPatientFields').style.display = 'grid';
+      if (!doctorId || !date || !time) {
+        UI.toast('Выберите врача, дату и время', 'error'); return;
+      }
+
+      const apptDt = `${date}T${time}:00`;
+      const btn = e.target.querySelector('button[type=submit]');
+      btn.disabled = true; btn.textContent = 'Сохранение...';
+
+      try {
+        // 1. Создаём пациента если не найден
+        let patientId = existingPatient?.id;
+        if (!patientId) {
+          const newPat = await api.createPatient({
+            last_name:   lastName,
+            first_name:  firstName || 'Пациент',
+            middle_name: middleName || null,
+            phone:       lead.phone,
+            email:       lead.email || null,
+            source:      'website'
+          });
+          patientId = newPat.id;
+        }
+
+        // 2. Создаём запись
+        await api.createAppt({
+          patient_id:     patientId,
+          doctor_id:      doctorId,
+          service_id:     serviceId || null,
+          appointment_dt: apptDt,
+          comment:        comment || null,
+          source:         'website'
+        });
+
+        // 3. Помечаем заявку как обработанную
+        await api.updateLeadStatus(leadId, 'processed');
+
+        UI.closeModal();
+        UI.toast('Запись создана, заявка оформлена', 'success');
+        await Pages._leadsLoad();
+      } catch (err) {
+        btn.disabled = false; btn.textContent = '✓ Создать запись и оформить';
+        UI.toast(err.message || 'Ошибка при оформлении', 'error');
+      }
+    });
+  } catch (e) {
+    UI.toast(e.message, 'error');
   }
-
-  // Предзаполняем врача и услугу
-  if (lead.doctor_id) document.getElementById('apptDoctor').value = lead.doctor_id;
-  if (lead.service_id) document.getElementById('apptService').value = lead.service_id;
-  if (lead.comment) document.getElementById('apptComment').value = lead.comment;
-
-  // После успешного создания записи в createApptForm, нам нужно будет пометить лид как обработанный.
-  // Для этого мы подменим обработчик формы или добавим колбэк.
-  // Упростим: просто добавим кнопку "Пометить как обработанную" в таблицу или сделаем это автоматически.
-  
-  // Чтобы сделать это автоматически, нам нужно знать, когда createApptForm отправится.
-  const originalForm = document.getElementById('createApptForm');
-  originalForm.addEventListener('submit', async () => {
-     // Ждем немного и помечаем лид
-     setTimeout(async () => {
-        try { await api.updateLeadStatus(leadId, 'processed'); } catch(_) {}
-     }, 1000);
-  });
 };

@@ -94,7 +94,36 @@ router.delete('/patients/:id/permanent',
   authenticate, requireRole('chief_doctor'),
   patientsCtrl.permanentDelete);
 
-// ── PATIENT FILES ──────────────────────────────────────────
+// ── DELETE ALL PATIENTS (только chief_doctor, для очистки тестовых данных) ──
+router.delete('/patients',
+  authenticate, requireRole('chief_doctor'),
+  async (req, res) => {
+    const { confirm } = req.query;
+    if (confirm !== 'DELETE_ALL') {
+      return res.status(400).json({ error: 'Передайте ?confirm=DELETE_ALL для подтверждения' });
+    }
+    try {
+      // Удаляем в правильном порядке (FK constraints)
+      await query('DELETE FROM activity_log WHERE entity_type IN (\'patient\',\'appointment\',\'payment\',\'treatment_record\')');
+      await query('DELETE FROM payments WHERE patient_id IN (SELECT id FROM patients)');
+      await query('DELETE FROM treatment_services WHERE treatment_record_id IN (SELECT id FROM treatment_records)');
+      await query('DELETE FROM treatment_records WHERE patient_id IN (SELECT id FROM patients)');
+      await query('DELETE FROM appointments WHERE patient_id IN (SELECT id FROM patients)');
+      await query('DELETE FROM patient_files WHERE patient_id IN (SELECT id FROM patients)');
+      await query('DELETE FROM anamnesis WHERE patient_id IN (SELECT id FROM patients)');
+      await query('DELETE FROM dental_charts WHERE patient_id IN (SELECT id FROM patients)');
+      await query('DELETE FROM patient_treatment_plans WHERE patient_id IN (SELECT id FROM patients)');
+      await query('DELETE FROM leads');
+      await query('DELETE FROM patients');
+      res.json({ success: true, message: 'Все пациенты и связанные данные удалены' });
+    } catch (err) {
+      console.error('[deleteAllPatients]', err.message);
+      res.status(500).json({ error: 'Ошибка при удалении: ' + err.message });
+    }
+  }
+);
+
+
 const { query } = require('../utils/db');
 
 router.post('/patients/:id/files',

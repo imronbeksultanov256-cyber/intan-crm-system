@@ -35,6 +35,7 @@ Pages.loadPatients = async (el) => {
       <div><h1>База пациентов</h1></div>
       <div style="display:flex;gap:10px">
         ${isChief ? `<button class="btn-secondary btn-sm" onclick="Pages.showDeletedPatients()">🗑 Корзина</button>` : ''}
+        ${isChief ? `<button class="btn-secondary btn-sm" style="color:var(--c-danger);border-color:var(--c-danger)" onclick="Pages.clearAllPatientsConfirm()">🧹 Очистить всё</button>` : ''}
         <button class="btn-primary" onclick="Pages.showCreatePatientModal()">+ Новый пациент</button>
       </div>
     </div>
@@ -874,4 +875,40 @@ Pages.showEditPatientModal = async (id) => {
       } catch(err) { UI.toast(err.message, 'error'); }
     });
   } catch(_) { UI.toast('Ошибка загрузки', 'error'); }
+};
+
+// ── ОЧИСТКА ВСЕХ ДАННЫХ (только chief_doctor) ──────────────
+Pages.clearAllPatientsConfirm = () => {
+  UI.showModal('⚠️ Удалить все данные', `
+    <div style="display:flex;flex-direction:column;gap:16px;text-align:center">
+      <div style="font-size:40px">🧹</div>
+      <div style="font-size:15px;font-weight:700;color:var(--c-danger)">Вы удалите ВСЕ данные</div>
+      <div style="font-size:13px;color:var(--text-2);line-height:1.6">
+        Будут удалены все пациенты, записи, платежи, лечебные карты и заявки.<br>
+        <b>Это действие необратимо.</b>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Введите <b>УДАЛИТЬ</b> для подтверждения</label>
+        <input class="form-input" id="clearConfirmInput" placeholder="УДАЛИТЬ" style="text-align:center" />
+      </div>
+      <button class="btn-primary" style="background:var(--c-danger);border-color:var(--c-danger)" onclick="Pages._doClearAll()">
+        Удалить всё навсегда
+      </button>
+    </div>
+  `);
+};
+
+Pages._doClearAll = async () => {
+  const val = document.getElementById('clearConfirmInput')?.value?.trim();
+  if (val !== 'УДАЛИТЬ') {
+    UI.toast('Введите УДАЛИТЬ для подтверждения', 'error'); return;
+  }
+  try {
+    await api.del('/patients?confirm=DELETE_ALL');
+    UI.closeModal();
+    UI.toast('Все данные удалены', 'success');
+    Pages.loadPatients(document.getElementById('page-patients'));
+  } catch(e) {
+    UI.toast(e.message || 'Ошибка при удалении', 'error');
+  }
 };
