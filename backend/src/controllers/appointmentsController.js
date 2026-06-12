@@ -109,9 +109,9 @@ exports.create = async (req, res) => {
       `SELECT id FROM appointments
        WHERE doctor_id = $1
          AND status NOT IN ('cancelled','no_show')
-         AND appointment_dt < ($2::timestamp + ($3 || ' minutes')::interval)
-         AND (appointment_dt + (COALESCE(duration_min,60) || ' minutes')::interval) > $2::timestamp`,
-      [doctor_id, appointment_dt, duration_min || 60]
+         AND appointment_dt < ($2::timestamp + (($3::text) || ' minutes')::interval)
+         AND (appointment_dt + (COALESCE(duration_min,60)::text || ' minutes')::interval) > $2::timestamp`,
+      [doctor_id, appointment_dt, (duration_min || 60).toString()]
     );
 
     if (conflict.rows.length > 0) {
@@ -129,16 +129,18 @@ exports.create = async (req, res) => {
        comment || null, source || 'admin', req.user.id]
     );
 
-    await query(
-      `INSERT INTO activity_log (user_id, action, entity_type, entity_id)
-       VALUES ($1,'CREATE_APPOINTMENT','appointment',$2)`,
-      [req.user.id, result.rows[0].id]
-    );
+    try {
+      await query(
+        `INSERT INTO activity_log (user_id, action, entity_type, entity_id)
+         VALUES ($1,'CREATE_APPOINTMENT','appointment',$2)`,
+        [req.user.id, result.rows[0].id]
+      );
+    } catch (_) { /* activity_log не критичен */ }
 
     res.status(201).json(result.rows[0]);
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Ошибка при создании записи' });
+    console.error('[appointments.create] ERROR:', err.message);
+    res.status(500).json({ error: 'Ошибка при создании записи: ' + err.message });
   }
 };
 
