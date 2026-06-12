@@ -172,12 +172,71 @@ exports.stats = async (req, res) => {
       [id]
     );
 
+    // 4. Пациенты этого врача
+    const patients = await query(
+      `SELECT p.id, p.first_name, p.last_name, p.middle_name, p.phone, p.email,
+              (SELECT MAX(appointment_dt) FROM appointments WHERE patient_id = p.id AND doctor_id = $1) as last_visit
+       FROM patients p
+       WHERE (p.assigned_doctor_id = $1 OR p.doctor_id = $1 OR EXISTS (SELECT 1 FROM appointments WHERE patient_id = p.id AND doctor_id = $1))
+         AND p.is_deleted = FALSE
+       ORDER BY last_visit DESC NULLS LAST
+       LIMIT 10`,
+      [id]
+    );
+
     res.json({
       summary: stats.rows[0] || { total_completed: 0, unique_patients: 0, total_revenue: 0 },
-      monthlyRevenue: monthlyRevenue.rows || []
+      monthlyRevenue: monthlyRevenue.rows || [],
+      patients: patients.rows || []
     });
   } catch (err) {
     console.error('[doctors.stats] ERROR:', err.message);
     res.status(500).json({ error: 'Ошибка при получении статистики врача: ' + err.message });
+  }
+};
+
+// ══════════════════════════════════════════════════════════
+// GET /api/doctors/:id/patients — список пациентов врача с поиском и пагинацией
+// ══════════════════════════════════════════════════════════
+exports.patients = async (req, res) => {
+  const { id } = req.params;
+  const { search = '', page = 1, limit = 20 } = req.query;
+  const offset = (parseInt(page) - 1) * parseInt(limit);
+
+  try {
+    const searchParam = `%${search}%`;
+    const countRes = await query(
+      `SELECT COUNT(DISTINCT p.id)
+       FROM patients p
+       LEFT JOIN appointments a ON a.patient_id = p.id
+       WHERE (p.assigned_doctor_id = $1 OR p.doctor_id = $1 OR a.doctor_id = $1)
+         AND p.is_deleted = FALSE
+         AND (p.last_name ILIKE $2 OR p.first_name ILIKE $2 OR p.phone ILIKE $2)`,
+      [id, searchParam]
+    );
+
+    const patients = await query(
+      `SELECT DISTINCT ON (p.last_name, p.first_name, p.id) 
+              p.id, p.first_name, p.last_name, p.middle_name, p.phone, p.email,
+              (SELECT MAX(appointment_dt) FROM appointments WHERE patient_id = p.id AND doctor_id = $1) as last_visit
+       FROM patients p
+       LEFT JOIN appointments a ON a.patient_id = p.id
+       WHERE (p.assigned_doctor_id = $1 OR p.doctor_id = $1 OR a.doctor_id = $1)
+         AND p.is_deleted = FALSE
+         AND (p.last_name ILIKE $2 OR p.first_name ILIKE $2 OR p.phone ILIKE $2)
+       ORDER BY p.last_name, p.first_name, p.id
+       LIMIT $3 OFFSET $4`,
+      [id, searchParam, parseInt(limit), offset]
+    );
+
+    res.json({
+      data: patients.rows,
+      total: parseInt(countRes.rows[0].count),
+      page: parseInt(page),
+      limit: parseInt(limit)
+    });
+  } catch (err) {
+    console.error('[doctors.patients] ERROR:', err.message);
+    res.status(500).json({ error: 'Ошибка при получении пациентов врача' });
   }
 };

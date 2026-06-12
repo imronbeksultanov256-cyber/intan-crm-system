@@ -70,12 +70,19 @@ const UI = {
       hour: '2-digit', minute: '2-digit',
     });
   },
+// Format money
+fmtMoney(n) {
+  return new Intl.NumberFormat('ru-RU').format(Math.round(n)) + ' сом';
+},
 
-  fmtMoney(n) {
-    return new Intl.NumberFormat('ru-RU').format(Math.round(n)) + ' сом';
-  },
+// Pluralize Russian words
+// Usage: UI.plural(5, ['визит', 'визита', 'визитов'])
+plural(n, titles) {
+  const cases = [2, 0, 1, 1, 1, 2];
+  return titles[(n % 100 > 4 && n % 100 < 20) ? 2 : cases[(n % 10 < 5) ? n % 10 : 5]];
+},
 
-  // Initials from name
+// Initials from name
   initials(name) {
     return name ? name.split(' ').map(w => w[0]).join('').toUpperCase().slice(0,2) : '??';
   },
@@ -109,6 +116,17 @@ const UI = {
       const h = Math.max(4, Math.round((v / max) * maxH));
       return `<div style="height:${h}px;flex:1;background:var(--c-primary);border-radius:2px 2px 0 0;opacity:0.6"></div>`;
     }).join('');
+  },
+
+  // Escape HTML to prevent XSS
+  esc(str) {
+    if (!str) return '';
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
   },
 };
 

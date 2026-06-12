@@ -82,8 +82,10 @@ exports.get = async (req, res) => {
     );
     if (!patient.rows[0]) return res.status(404).json({ error: 'Пациент не найден' });
 
-    // Проверяем наличие новых таблиц
+    // Проверяем наличие новых таблиц (безопасно через whitelist)
     const tableExists = async (tbl) => {
+      const allowed = ['patient_anamnesis', 'dental_chart', 'treatment_plans'];
+      if (!allowed.includes(tbl)) return false;
       try {
         await query(`SELECT 1 FROM ${tbl} LIMIT 0`);
         return true;
@@ -549,5 +551,102 @@ exports.permanentDelete = async (req, res) => {
     await query('ROLLBACK');
     console.error('[patients.permanentDelete]', err.message);
     res.status(500).json({ error: 'Ошибка при удалении: ' + err.message });
+  }
+};
+
+// ══════════════════════════════════════════════════════════
+// POST /api/treatments — создать запись о лечении
+// ══════════════════════════════════════════════════════════
+exports.createTreatmentRecord = async (req, res) => {
+  const {
+    appointment_id, patient_id, doctor_id,
+    diagnosis, treatment, prescription, services, total_cost
+  } = req.body;
+
+  if (!patient_id || !doctor_id) {
+    return res.status(400).json({ error: 'patient_id и doctor_id обязательны' });
+  }
+
+  try {
+    await query('BEGIN');
+
+    // 1. Создаем основную запись
+    const trRes = await query(
+      `INSERT INTO treatment_records
+         (appointment_id, patient_id, doctor_id, diagnosis, treatment, prescription, total_cost)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       RETURNING *`,
+      [appointment_id || null, patient_id, doctor_id, diagnosis, treatment, prescription, total_cost || 0]
+    );
+    const tr = trRes.rows[0];
+
+    // 2. Добавляем услуги
+    if (services && Array.isArray(services)) {
+      for (const s of services) {
+        await query(
+          `INSERT INTO treatment_services
+             (treatment_record_id, service_id, service_name, price, quantity)
+           VALUES ($1, $2, $3, $4, $5)`,
+          [tr.id, s.id || null, s.name || s.service_name, s.price || 0, s.quantity || 1]
+        );
+      }
+    }
+
+    // 3. Обновляем статус записи, если указана
+    if (appointment_id) {
+      await query(
+        `UPDATE appointments SET status = 'completed', updated_at = NOW() WHERE id = $1`,
+        [appointment_id]
+      );
+    }
+
+    // 4. Создаем ожидающий платеж (опционально, но логично)
+    if (total_cost > 0) {
+      await query(
+        `INSERT INTO payments (treatment_record_id, patient_id, amount, status, received_by)
+         VALUES ($1, $2, $3, 'pending', $4)`,
+        [tr.id, patient_id, total_cost, req.user.id]
+      );
+    }
+
+    await query('COMMIT');
+    res.status(201).json(tr);
+  } catch (err) {
+    await query('ROLLBACK');
+    console.error('[createTreatmentRecord]', err.message);
+    res.status(500).json({ error: 'Ошибка при сохранении протокола лечения' });
+  }
+};
+
+// ══════════════════════════════════════════════════════════
+// GET /api/treatments/:id
+// ══════════════════════════════════════════════════════════
+exports.getTreatmentRecord = async (req, res) => {
+  const { id } = req.params;
+  try {
+    const tr = await query(
+      `SELECT tr.*, 
+              CONCAT(u.last_name, ' ', u.first_name) as doctor_name,
+              p.last_name || ' ' || p.first_name as patient_name
+       FROM treatment_records tr
+       JOIN patients p ON p.id = tr.patient_id
+       JOIN doctors d ON d.id = tr.doctor_id
+       JOIN users u ON u.id = d.user_id
+       WHERE tr.id = $1`,
+      [id]
+    );
+    if (!tr.rows[0]) return res.status(404).json({ error: 'Запись не найдена' });
+
+    const services = await query(
+      `SELECT * FROM treatment_services WHERE treatment_record_id = $1`,
+      [id]
+    );
+
+    res.json({
+      ...tr.rows[0],
+      services: services.rows
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Ошибка при получении записи' });
   }
 };

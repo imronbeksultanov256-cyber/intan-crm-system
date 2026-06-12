@@ -101,6 +101,10 @@ const api = {
     api.patch(`/patients/${patientId}/treatment-plan/${planId}/item/${itemId}`,
               { status: 'completed', completed_date: new Date().toISOString().split('T')[0] }),
 
+  // ── История лечения ───────────────────────────────────────
+  createTreatmentRecord: (body) => api.post('/treatments', body),
+  getTreatmentRecord:    (id)   => api.get(`/treatments/${id}`),
+
   // ── Файлы ─────────────────────────────────────────────────
   uploadFile: (patientId, fd) => api.upload(`/patients/${patientId}/files`, fd),
 
@@ -132,6 +136,7 @@ const api = {
   updateDoctor: (id, b) => api.put(`/doctors/${id}`, b),
   updateDoctorSchedule: (id, b) => api.put(`/doctors/${id}/schedule`, b),
   getDoctorStats: (id) => api.get(`/doctors/${id}/stats`),
+  getDoctorPatients: (id, p = '') => api.get(`/doctors/${id}/patients${p}`),
 
   // ── Users ─────────────────────────────────────────────────
   users:      ()     => api.get('/users'),

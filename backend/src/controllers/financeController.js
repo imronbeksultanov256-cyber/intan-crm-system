@@ -115,16 +115,17 @@ exports.createPayment = async (req, res) => {
 };
 
 // ── GET /api/finance/export/pdf ───────────────────────────
-// Returns JSON data for client-side PDF generation
 exports.exportPdf = async (req, res) => {
+  const PDFDocument = require('pdfkit');
+  const path = require('path');
+  const fs = require('fs');
   const { from, to } = req.query;
 
   try {
-    const rows = await query(
+    const rowsRes = await query(
       `SELECT p.paid_at, pt.last_name || ' ' || pt.first_name AS patient,
               p.amount, p.payment_method, p.status,
-              u.last_name || ' ' || u.first_name AS received_by,
-              p.notes
+              u.last_name || ' ' || u.first_name AS received_by
        FROM payments p
        JOIN patients pt ON pt.id = p.patient_id
        LEFT JOIN users u ON u.id = p.received_by
@@ -133,18 +134,76 @@ exports.exportPdf = async (req, res) => {
        ORDER BY p.paid_at`,
       [from || null, to || null]
     );
+    const rows = rowsRes.rows;
 
-    // Return structured JSON for client-side PDF generation
-    res.json({
-      title: 'Финансовый отчёт клиники «Интан»',
-      period: { from: from || null, to: to || null },
-      generatedAt: new Date().toISOString(),
-      rows: rows.rows,
-      total: rows.rows.reduce((s, r) => s + parseFloat(r.amount || 0), 0)
+    const doc = new PDFDocument({ margin: 30, size: 'A4' });
+    const fontPath = path.join(__dirname, '../utils/Roboto-Regular.ttf');
+    
+    if (fs.existsSync(fontPath)) {
+      doc.registerFont('Roboto', fontPath);
+      doc.font('Roboto');
+    }
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename=finance_report.pdf`);
+    doc.pipe(res);
+
+    // Header
+    doc.fillColor('#1B4F72').fontSize(20).text('Финансовый отчёт клиники «Интан»', { align: 'center' });
+    doc.moveDown(0.5);
+    doc.fillColor('#666666').fontSize(10).text(`Период: ${from || 'начало'} — ${to || 'сегодня'}`, { align: 'center' });
+    doc.moveDown(2);
+
+    // Table Header
+    const tableTop = 120;
+    const colWidths = [30, 110, 150, 80, 80, 80];
+    const colX = [30, 60, 170, 320, 400, 480];
+    const headers = ['№', 'Дата', 'Пациент', 'Сумма', 'Метод', 'Статус'];
+
+    doc.fillColor('#1B6CA8').fontSize(10);
+    headers.forEach((h, i) => {
+      doc.text(h, colX[i], tableTop, { width: colWidths[i], align: i === 3 ? 'right' : 'left' });
     });
+
+    doc.moveTo(30, tableTop + 15).lineTo(560, tableTop + 15).strokeColor('#D0D7DE').stroke();
+
+    // Data Rows
+    let y = tableTop + 25;
+    let total = 0;
+    const methodLabels = { cash: 'Налич', card: 'Карта', transfer: 'Перевод' };
+
+    rows.forEach((r, i) => {
+      if (y > 750) {
+        doc.addPage();
+        y = 50;
+        // Repeat headers on new page
+        doc.fillColor('#1B6CA8').fontSize(10);
+        headers.forEach((h, idx) => doc.text(h, colX[idx], y, { width: colWidths[idx], align: idx === 3 ? 'right' : 'left' }));
+        y += 20;
+      }
+
+      doc.fillColor('#333333').fontSize(9);
+      doc.text(i + 1, colX[0], y);
+      doc.text(new Date(r.paid_at).toLocaleDateString('ru-RU'), colX[1], y);
+      doc.text(r.patient, colX[2], y, { width: colWidths[2], height: 12, ellipsis: true });
+      doc.text(new Intl.NumberFormat('ru-RU').format(r.amount), colX[3], y, { width: colWidths[3], align: 'right' });
+      doc.text(methodLabels[r.payment_method] || r.payment_method, colX[4], y);
+      doc.text(r.status === 'paid' ? 'Оплачено' : r.status, colX[5], y);
+
+      total += parseFloat(r.amount);
+      y += 20;
+    });
+
+    // Total
+    doc.moveDown(1);
+    doc.moveTo(30, y).lineTo(560, y).strokeColor('#1B6CA8').stroke();
+    y += 10;
+    doc.fillColor('#0D6E1A').fontSize(12).text(`ИТОГО: ${new Intl.NumberFormat('ru-RU').format(total)} сом`, 30, y, { align: 'right', width: 530 });
+
+    doc.end();
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Ошибка при получении данных' });
+    console.error('[exportPdf]', err);
+    res.status(500).json({ error: 'Ошибка генерации PDF' });
   }
 };
 
@@ -154,7 +213,7 @@ exports.exportExcel = async (req, res) => {
   const { from, to } = req.query;
 
   try {
-    const rows = await query(
+    const rowsRes = await query(
       `SELECT p.paid_at, pt.last_name || ' ' || pt.first_name AS patient,
               p.amount, p.payment_method, p.status,
               u.last_name || ' ' || u.first_name AS received_by,
@@ -167,107 +226,70 @@ exports.exportExcel = async (req, res) => {
        ORDER BY p.paid_at`,
       [from || null, to || null]
     );
+    const rows = rowsRes.rows;
 
     const methodLabels = { cash: 'Наличные', card: 'Банковская карта', transfer: 'Перевод' };
     const statusLabels = { paid: 'Оплачено', pending: 'Ожидает', refunded: 'Возврат' };
 
     const wb = new ExcelJS.Workbook();
-    wb.creator = 'Интан CRM';
     const ws = wb.addWorksheet('Финансовый отчёт');
 
-    // Title row
-    ws.mergeCells('A1:G1');
-    const titleCell = ws.getCell('A1');
-    titleCell.value = `Финансовый отчёт клиники «Интан»`;
-    titleCell.font = { bold: true, size: 14, color: { argb: 'FF1B4F72' } };
-    titleCell.alignment = { horizontal: 'center' };
-    ws.getRow(1).height = 28;
-
-    // Period row
-    ws.mergeCells('A2:G2');
-    const periodCell = ws.getCell('A2');
-    periodCell.value = `Период: ${from ? new Date(from).toLocaleDateString('ru-RU') : 'начало'} — ${to ? new Date(to).toLocaleDateString('ru-RU') : 'сегодня'}`;
-    periodCell.font = { italic: true, size: 10, color: { argb: 'FF666666' } };
-    periodCell.alignment = { horizontal: 'center' };
-    ws.getRow(2).height = 18;
-
-    // Empty row
-    ws.addRow([]);
-
-    // Header row
-    const headerRow = ws.addRow(['№', 'Дата и время', 'Пациент', 'Сумма (сом)', 'Способ оплаты', 'Статус', 'Принял']);
-    headerRow.eachCell(cell => {
-      cell.font = { bold: true, color: { argb: 'FFFFFFFF' } };
-      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1B6CA8' } };
-      cell.alignment = { horizontal: 'center', vertical: 'middle' };
-      cell.border = {
-        top: { style: 'thin' }, bottom: { style: 'thin' },
-        left: { style: 'thin' }, right: { style: 'thin' }
-      };
-    });
-    headerRow.height = 22;
-
-    // Data rows
-    let total = 0;
-    rows.rows.forEach((r, i) => {
-      const dataRow = ws.addRow([
-        i + 1,
-        r.paid_at ? new Date(r.paid_at).toLocaleString('ru-RU') : '—',
-        r.patient,
-        parseFloat(r.amount),
-        methodLabels[r.payment_method] || r.payment_method,
-        statusLabels[r.status] || r.status,
-        r.received_by || '—'
-      ]);
-      total += parseFloat(r.amount) || 0;
-
-      const isEven = (i % 2 === 0);
-      dataRow.eachCell((cell, colIdx) => {
-        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: isEven ? 'FFF0F7FF' : 'FFFFFFFF' } };
-        cell.border = {
-          top: { style: 'thin', color: { argb: 'FFD0D7DE' } },
-          bottom: { style: 'thin', color: { argb: 'FFD0D7DE' } },
-          left: { style: 'thin', color: { argb: 'FFD0D7DE' } },
-          right: { style: 'thin', color: { argb: 'FFD0D7DE' } }
-        };
-        if (colIdx === 4) { // Amount column
-          cell.numFmt = '#,##0';
-          cell.font = { bold: true, color: { argb: 'FF1B6CA8' } };
-        }
-      });
-    });
-
-    // Total row
-    const totalRow = ws.addRow(['', '', 'ИТОГО:', total, '', '', '']);
-    totalRow.getCell(3).font = { bold: true };
-    totalRow.getCell(4).font = { bold: true, size: 12, color: { argb: 'FF0D6E1A' } };
-    totalRow.getCell(4).numFmt = '#,##0';
-    totalRow.getCell(4).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE8F5E9' } };
-    totalRow.height = 20;
-
-    // Summary row
-    ws.addRow([]);
-    const genRow = ws.addRow([`Сформировано: ${new Date().toLocaleString('ru-RU')} | Платежей: ${rows.rows.length}`]);
-    ws.mergeCells(`A${genRow.number}:G${genRow.number}`);
-    genRow.getCell(1).font = { italic: true, size: 9, color: { argb: 'FF999999' } };
-
-    // Column widths
     ws.columns = [
-      { key: 'num',    width: 5 },
-      { key: 'date',   width: 22 },
-      { key: 'pat',    width: 32 },
-      { key: 'amt',    width: 16 },
-      { key: 'meth',   width: 20 },
-      { key: 'stat',   width: 14 },
-      { key: 'recv',   width: 24 },
+      { header: '№', key: 'id', width: 5 },
+      { header: 'Дата и время', key: 'date', width: 20 },
+      { header: 'Пациент', key: 'patient', width: 35 },
+      { header: 'Сумма (сом)', key: 'amount', width: 15 },
+      { header: 'Метод оплаты', key: 'method', width: 20 },
+      { header: 'Статус', key: 'status', width: 15 },
+      { header: 'Принял', key: 'received_by', width: 25 },
+      { header: 'Примечание', key: 'notes', width: 30 },
     ];
 
+    // Style Header
+    ws.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
+    ws.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1B6CA8' } };
+    ws.getRow(1).alignment = { horizontal: 'center', vertical: 'middle' };
+
+    let total = 0;
+    rows.forEach((r, i) => {
+      const row = ws.addRow({
+        id: i + 1,
+        date: new Date(r.paid_at).toLocaleString('ru-RU'),
+        patient: r.patient,
+        amount: parseFloat(r.amount),
+        method: methodLabels[r.payment_method] || r.payment_method,
+        status: statusLabels[r.status] || r.status,
+        received_by: r.received_by || '—',
+        notes: r.notes || ''
+      });
+      total += parseFloat(r.amount);
+
+      // Amount format
+      row.getCell('amount').numFmt = '#,##0';
+    });
+
+    // Add Total Row
+    const totalRow = ws.addRow({ patient: 'ИТОГО:', amount: total });
+    totalRow.getCell('patient').font = { bold: true };
+    totalRow.getCell('amount').font = { bold: true, color: { argb: 'FF0D6E1A' } };
+    totalRow.getCell('amount').numFmt = '#,##0';
+
+    // Auto-width adjustment (simple version)
+    ws.columns.forEach(column => {
+      let maxLen = 0;
+      column.eachCell({ includeEmpty: true }, cell => {
+        const len = cell.value ? cell.value.toString().length : 0;
+        if (len > maxLen) maxLen = len;
+      });
+      column.width = Math.min(Math.max(column.width, maxLen + 2), 50);
+    });
+
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''finance_${from||'all'}_${to||'all'}.xlsx`);
+    res.setHeader('Content-Disposition', `attachment; filename=finance_report.xlsx`);
     await wb.xlsx.write(res);
     res.end();
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Ошибка при экспорте Excel' });
+    console.error('[exportExcel]', err);
+    res.status(500).json({ error: 'Ошибка экспорта Excel' });
   }
 };

@@ -103,6 +103,19 @@ Pages.showDoctorDetail = async (id) => {
         </div>
 
         <div>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+            <h3 style="font-size:14px;margin:0">Связанные пациенты</h3>
+            <div class="search-wrap" style="width:200px;margin:0">
+              <input class="search-input" id="docPatientSearch" placeholder="Поиск..." style="padding:4px 10px 4px 30px;font-size:12px" />
+            </div>
+          </div>
+          <div id="docPatientsList" style="display:flex;flex-direction:column;gap:6px;max-height:220px;overflow-y:auto;padding-right:4px">
+            ${UI.skeleton(3, 1)}
+          </div>
+          <div id="docPatientsPagination" class="pagination" style="margin-top:8px;justify-content:center"></div>
+        </div>
+
+        <div>
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
             <h3 style="font-size:14px;margin:0">График работы</h3>
             ${isChief ? `<button class="btn-secondary btn-sm" onclick="Pages.editDoctorSchedule('${d.id}')">✏️ Изменить</button>` : ''}
@@ -122,6 +135,53 @@ Pages.showDoctorDetail = async (id) => {
         </div>
       </div>
     `;
+
+    // Load patients with pagination and search
+    let patientPage = 1;
+    const loadDocPatients = async () => {
+      const search = document.getElementById('docPatientSearch')?.value || '';
+      const listEl = document.getElementById('docPatientsList');
+      const pagEl  = document.getElementById('docPatientsPagination');
+      if (!listEl) return;
+
+      try {
+        const res = await api.getDoctorPatients(id, `?search=${encodeURIComponent(search)}&page=${patientPage}&limit=10`);
+        if (!res.data?.length) {
+          listEl.innerHTML = '<div style="font-size:12px;color:var(--text-3);text-align:center;padding:10px">Пациенты не найдены</div>';
+          pagEl.innerHTML = '';
+          return;
+        }
+
+        listEl.innerHTML = res.data.map(p => `
+          <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 10px;background:var(--surface-2);border-radius:8px;font-size:13px">
+            <div>
+              <span style="font-weight:600">${p.last_name} ${p.first_name} ${p.middle_name || ''}</span>
+              <span style="font-size:11px;color:var(--text-3);margin-left:6px">${p.phone}</span>
+            </div>
+            <button class="btn-secondary btn-sm" style="font-size:11px;padding:3px 8px;cursor:pointer" onclick="UI.closeModal();window.navigate('patient-detail', {patientId: '${p.id}'})">Карточка 👤</button>
+          </div>
+        `).join('');
+
+        const totalPages = Math.ceil(res.total / res.limit);
+        if (totalPages > 1) {
+          pagEl.innerHTML = `
+            <button class="btn-ghost btn-xs" ${res.page === 1 ? 'disabled' : ''} id="prevDocPat">←</button>
+            <span style="font-size:11px;color:var(--text-3)">${res.page} / ${totalPages}</span>
+            <button class="btn-ghost btn-xs" ${res.page === totalPages ? 'disabled' : ''} id="nextDocPat">→</button>
+          `;
+          document.getElementById('prevDocPat')?.addEventListener('click', () => { patientPage--; loadDocPatients(); });
+          document.getElementById('nextDocPat')?.addEventListener('click', () => { patientPage++; loadDocPatients(); });
+        } else {
+          pagEl.innerHTML = '';
+        }
+      } catch (err) {
+        listEl.innerHTML = '<div style="font-size:12px;color:var(--c-danger);text-align:center;padding:10px">Ошибка загрузки</div>';
+      }
+    };
+
+    document.getElementById('docPatientSearch')?.addEventListener('input', UI.debounce(() => { patientPage = 1; loadDocPatients(); }, 400));
+    loadDocPatients();
+
   } catch (e) {
     document.getElementById('docDetailContent').innerHTML = UI.empty('⚠️','Ошибка данных');
   }

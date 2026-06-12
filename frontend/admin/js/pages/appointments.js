@@ -400,10 +400,13 @@ Pages._renderAppointments = (rows) => {
 
 // ── Изменение статуса ─────────────────────────────────────
 Pages.changeApptStatus = async (id, status) => {
+  if (status === 'completed') {
+    return Pages.showCompleteApptModal(id);
+  }
+
   const labels = {
     confirmed:   'Подтверждено',
     in_progress: 'Приём начат',
-    completed:   'Завершено',
     cancelled:   'Отменено',
     no_show:     'Отмечен как не пришедший',
   };
@@ -414,6 +417,162 @@ Pages.changeApptStatus = async (id, status) => {
     await Pages._loadCounters();
   } catch (e) {
     UI.toast(e.message, 'error');
+  }
+};
+
+// ── МОДАЛКА ЗАВЕРШЕНИЯ ПРИЁМА (Протокол лечения) ──────────
+Pages.showCompleteApptModal = async (apptId) => {
+  UI.showModal('Завершение приёма', `<div id="completeApptContent">${UI.pageLoader()}</div>`, 'lg');
+  
+  try {
+    // Получаем данные о записи
+    const appointments = await api.appointments(`?limit=100`); // Simple way to find the one we need
+    const a = appointments.find(x => x.id === apptId);
+    if (!a) throw new Error('Запись не найдена');
+
+    const services = await api.services();
+    const svcFlat  = services?.flat || (Array.isArray(services) ? services : []);
+
+    document.getElementById('completeApptContent').innerHTML = `
+      <form id="completeApptForm" style="display:flex;flex-direction:column;gap:16px">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+          <div>
+            <div style="font-size:13px;margin-bottom:12px;padding:10px;background:var(--surface-2);border-radius:8px">
+              <b>Пациент:</b> ${a.patient_name}<br>
+              <b>Врач:</b> ${a.doctor_name}<br>
+              <b>Дата:</b> ${UI.fmtDate(a.appointment_dt)}
+            </div>
+            <div class="form-group">
+              <label class="form-label">Диагноз *</label>
+              <textarea class="form-textarea" id="trDiagnosis" rows="2" required placeholder="Жалобы, объективный осмотр, диагноз..."></textarea>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Проведённое лечение *</label>
+              <textarea class="form-textarea" id="trTreatment" rows="3" required placeholder="Описание манипуляций..."></textarea>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Рекомендации / Рецепт</label>
+              <textarea class="form-textarea" id="trPrescription" rows="2" placeholder="Назначения пациенту..."></textarea>
+            </div>
+          </div>
+          
+          <div>
+            <label class="form-label" style="display:flex;justify-content:space-between">
+              Услуги и стоимость
+              <span id="trTotalCost" style="font-weight:700;color:var(--c-primary)">0 сом</span>
+            </label>
+            <div id="trServicesList" style="display:flex;flex-direction:column;gap:8px;margin-bottom:10px">
+               <!-- Сюда добавляются услуги -->
+            </div>
+            <button type="button" class="btn-secondary btn-sm" style="width:100%" onclick="Pages.addTrService()">+ Добавить услугу</button>
+            
+            <div class="form-group" style="margin-top:16px">
+              <label class="form-label">Следующий визит (план)</label>
+              <input type="date" class="form-input" id="trNextVisit" min="${new Date().toISOString().split('T')[0]}" />
+            </div>
+          </div>
+        </div>
+
+        <div style="display:flex;justify-content:flex-end;gap:10px;padding-top:10px;border-top:1px solid var(--border)">
+          <button type="button" class="btn-ghost" onclick="UI.closeModal()">Отмена</button>
+          <button type="submit" class="btn-primary">✅ Сохранить и завершить</button>
+        </div>
+      </form>
+    `;
+
+    // Helpers
+    let trServices = [];
+    const updateTrTotal = () => {
+      const total = trServices.reduce((s, x) => s + (parseFloat(x.price) || 0) * (x.quantity || 1), 0);
+      document.getElementById('trTotalCost').textContent = UI.fmtMoney(total);
+    };
+
+    Pages.addTrService = (service = null) => {
+      const id = Math.random().toString(36).slice(2);
+      const s = service || { id: null, name: '', price: 0, quantity: 1 };
+      
+      const div = document.createElement('div');
+      div.className = 'card';
+      div.style = 'padding:8px;display:grid;grid-template-columns:1fr 60px 40px;gap:8px;align-items:center';
+      div.id = `trs-${id}`;
+      div.innerHTML = `
+        <select class="form-select form-select-sm s-select" required>
+          <option value="">-- Услуга --</option>
+          ${svcFlat.map(x => `<option value="${x.id}" data-price="${x.price}" ${x.id === s.id ? 'selected' : ''}>${x.name}</option>`).join('')}
+        </select>
+        <input type="number" class="form-input form-input-sm s-price" value="${s.price}" placeholder="Цена" />
+        <button type="button" class="btn-icon" style="color:var(--c-danger)" onclick="this.parentElement.remove(); Pages.calcTrTotal();">✕</button>
+      `;
+      document.getElementById('trServicesList').appendChild(div);
+
+      div.querySelector('.s-select').onchange = (e) => {
+        const opt = e.target.selectedOptions[0];
+        if (opt) div.querySelector('.s-price').value = opt.dataset.price;
+        Pages.calcTrTotal();
+      };
+      div.querySelector('.s-price').oninput = Pages.calcTrTotal;
+      Pages.calcTrTotal();
+    };
+
+    Pages.calcTrTotal = () => {
+      let total = 0;
+      document.querySelectorAll('#trServicesList > div').forEach(row => {
+        total += parseFloat(row.querySelector('.s-price').value) || 0;
+      });
+      document.getElementById('trTotalCost').textContent = UI.fmtMoney(total);
+    };
+
+    // Pre-fill with appointment service
+    if (a.service_id) {
+      Pages.addTrService({ id: a.service_id, name: a.service_name, price: a.service_price || 0, quantity: 1 });
+    } else {
+      Pages.addTrService();
+    }
+
+    document.getElementById('completeApptForm').onsubmit = async (e) => {
+      e.preventDefault();
+      
+      const services = [];
+      let totalCost = 0;
+      document.querySelectorAll('#trServicesList > div').forEach(row => {
+        const sel = row.querySelector('.s-select');
+        const price = parseFloat(row.querySelector('.s-price').value) || 0;
+        if (sel.value) {
+          services.push({
+            id: sel.value,
+            name: sel.selectedOptions[0].text,
+            price: price,
+            quantity: 1
+          });
+          totalCost += price;
+        }
+      });
+
+      const body = {
+        appointment_id: apptId,
+        patient_id: a.patient_id,
+        doctor_id: a.doctor_id,
+        diagnosis: document.getElementById('trDiagnosis').value,
+        treatment: document.getElementById('trTreatment').value,
+        prescription: document.getElementById('trPrescription').value,
+        next_visit: document.getElementById('trNextVisit').value || null,
+        services,
+        total_cost: totalCost
+      };
+
+      try {
+        await api.createTreatmentRecord(body);
+        UI.toast('Приём успешно завершён', 'success');
+        UI.closeModal();
+        await Pages._apptLoad();
+        await Pages._loadCounters();
+      } catch (err) {
+        UI.toast(err.message, 'error');
+      }
+    };
+
+  } catch (err) {
+    document.getElementById('completeApptContent').innerHTML = UI.empty('⚠️', 'Ошибка', err.message);
   }
 };
 
