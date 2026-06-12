@@ -337,32 +337,32 @@ router.get('/finance/export/pdf',
 
 // ── INVENTORY / СКЛАД ──────────────────────────────────────
 router.get('/inventory',
-  authenticate, requireRole('chief_doctor', 'admin'),
+  authenticate, requireRole('chief_doctor', 'admin', 'doctor'),
   inventoryCtrl.list);
 
 router.post('/inventory',
-  authenticate, requireRole('chief_doctor'),
+  authenticate, requireRole('chief_doctor', 'admin'),
   inventoryCtrl.create);
 
 router.put('/inventory/:id',
-  authenticate, requireRole('chief_doctor'),
+  authenticate, requireRole('chief_doctor', 'admin'),
   inventoryCtrl.update);
 
 router.post('/inventory/transaction',
-  authenticate, requireRole('chief_doctor', 'admin'),
+  authenticate, requireRole('chief_doctor', 'admin', 'doctor'),
   inventoryCtrl.transaction);
 
 router.get('/inventory/logs',
-  authenticate, requireRole('chief_doctor'),
+  authenticate, requireRole('chief_doctor', 'admin'),
   inventoryCtrl.logs);
 
 router.get('/inventory/logs/:item_id',
-  authenticate, requireRole('chief_doctor'),
+  authenticate, requireRole('chief_doctor', 'admin'),
   inventoryCtrl.logs);
 
 // ── ACTIVITY LOG ───────────────────────────────────────────
 router.get('/logs',
-  authenticate, requireRole('chief_doctor'),
+  authenticate, requireRole('chief_doctor', 'admin'),
   async (req, res) => {
     try {
       const result = await query(
