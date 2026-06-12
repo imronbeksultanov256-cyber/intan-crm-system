@@ -209,7 +209,7 @@ Pages.convertLeadToPatient = async (leadId) => {
             middle_name: middleName || null,
             phone:       lead.phone,
             email:       lead.email || null,
-            source:      'website'
+            source:      'online'
           });
           patientId = newPat.id;
         }
@@ -221,7 +221,7 @@ Pages.convertLeadToPatient = async (leadId) => {
           service_id:     serviceId || null,
           appointment_dt: apptDt,
           comment:        comment || null,
-          source:         'website'
+          source:         'online'
         });
 
         // 3. Помечаем заявку как обработанную
