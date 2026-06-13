@@ -78,4 +78,36 @@ async function processReminders() {
   }
 }
 
-module.exports = { sendTelegram, notifyNewAppointment, sendDailyReport, processReminders };
+// ── NOTIFY NEW LEAD ──────────────────────────────────────────
+async function notifyNewLead(lead) {
+  let serviceName = 'Не указана';
+  if (lead.service_id) {
+    try {
+      const res = await query('SELECT name FROM services WHERE id = $1', [lead.service_id]);
+      if (res.rows[0]) serviceName = res.rows[0].name;
+    } catch (_) {}
+  } else if (lead.comment && lead.comment.includes('Услуга:')) {
+    const match = lead.comment.match(/Услуга: (.*?)(?: \| |$)/);
+    if (match) serviceName = match[1];
+  }
+
+  const msg = `
+🦷 <b>Новая заявка с сайта — Интан</b>
+
+👤 Пациент: ${lead.name}
+📞 Телефон: ${lead.phone || '—'}
+🩺 Услуга: ${serviceName}
+📅 Желаемая дата: ${lead.preferred_dt ? new Date(lead.preferred_dt).toLocaleDateString('ru-RU') : 'Не указана'}
+${lead.comment ? `💬 Комментарий: ${lead.comment}` : ''}
+  `.trim();
+
+  await sendTelegram(msg);
+}
+
+module.exports = {
+  sendTelegram,
+  notifyNewAppointment,
+  sendDailyReport,
+  processReminders,
+  notifyNewLead
+};

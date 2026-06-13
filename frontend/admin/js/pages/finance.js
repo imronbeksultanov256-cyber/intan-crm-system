@@ -29,6 +29,7 @@ function renderFinance(data) {
   const el = document.getElementById('financeContent');
   const today   = data.today   || {};
   const week    = data.week    || {};
+  const year    = data.year    || {};
   const monthly = data.monthlyChart || [];
   const top     = data.topServices  || [];
   const docs    = data.doctorStats  || [];
@@ -55,9 +56,9 @@ function renderFinance(data) {
       </div>
       <div class="stat-card stat-card--amber">
         <div class="stat-card__icon">📅</div>
-        <div class="stat-card__label">Выручка за месяц</div>
-        <div class="stat-card__value">${UI.fmtMoney(revenues.reduce((a,b)=>a+b,0))}</div>
-        <div class="stat-card__sub">${monthly.length} дней с платежами</div>
+        <div class="stat-card__label">Выручка за год</div>
+        <div class="stat-card__value">${UI.fmtMoney(year.revenue || 0)}</div>
+        <div class="stat-card__sub">${year.payments || 0} платежей за год</div>
       </div>
       <div class="stat-card stat-card--purple">
         <div class="stat-card__icon">🦷</div>
@@ -126,7 +127,7 @@ function renderFinance(data) {
       <div class="data-table-wrap">
         <table class="data-table">
           <thead><tr>
-            <th>Врач</th><th>Специализация</th><th>Приёмов</th><th>Выручка</th>
+            <th>Врач</th><th>Специализация</th><th>Приёмов</th><th>Выручка</th><th>Ср. чек</th>
             <th>Доля</th>
           </tr></thead>
           <tbody>
@@ -139,6 +140,7 @@ function renderFinance(data) {
                   <td style="color:var(--text-2)">${d.specialization}</td>
                   <td>${d.appointments}</td>
                   <td style="font-weight:600;color:var(--c-primary)">${UI.fmtMoney(d.revenue)}</td>
+                  <td style="color:var(--text-2)">${UI.fmtMoney(d.avg_check || 0)}</td>
                   <td>
                     <div style="display:flex;align-items:center;gap:8px">
                       <div style="background:var(--surface-3);border-radius:3px;height:6px;width:80px;flex-shrink:0">
@@ -303,6 +305,25 @@ Pages.exportFinanceExcel = () => {
       a.click();
     })
     .catch(() => UI.toast('Ошибка экспорта', 'error'));
+};
+
+Pages.exportFinancePdf = () => {
+  const from = document.getElementById('payFromDate')?.value || '';
+  const to   = document.getElementById('payToDate')?.value   || '';
+  const token = api.getToken();
+  let url = `${api.baseUrl}/finance/export/pdf?`;
+  if (from) url += `from=${from}&`;
+  if (to)   url += `to=${to}`;
+  
+  fetch(url, { headers: { Authorization: `Bearer ${token}` } })
+    .then(r => r.blob())
+    .then(blob => {
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `finance_${from||'all'}.pdf`;
+      a.click();
+    })
+    .catch(() => UI.toast('Ошибка экспорта PDF', 'error'));
 };
 
 

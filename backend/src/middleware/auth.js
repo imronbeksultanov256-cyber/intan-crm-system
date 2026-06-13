@@ -32,8 +32,10 @@ const PERMISSIONS = {
   ],
 };
 
+const { query } = require('../utils/db');
+
 // ── AUTHENTICATE TOKEN ─────────────────────────────────────
-const authenticate = (req, res, next) => {
+const authenticate = async (req, res, next) => {
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1];
 
@@ -43,6 +45,17 @@ const authenticate = (req, res, next) => {
 
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    
+    // Проверяем активность и статус пользователя в БД в реальном времени
+    const userCheck = await query('SELECT is_active, status FROM users WHERE id = $1', [decoded.id]);
+    const dbUser = userCheck.rows[0];
+    
+    const blockedStatuses = ['archived', 'terminated', 'suspended', 'inactive'];
+    
+    if (!dbUser || !dbUser.is_active || blockedStatuses.includes(dbUser.status)) {
+      return res.status(401).json({ error: 'Учетная запись отключена, заблокирована или удалена' });
+    }
+    
     req.user = decoded;
     next();
   } catch (err) {

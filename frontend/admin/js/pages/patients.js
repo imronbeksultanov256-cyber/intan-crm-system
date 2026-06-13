@@ -182,11 +182,11 @@ Pages.loadPatientDetail = async (el, params) => {
           <div style="display:flex;flex-wrap:wrap;gap:12px;margin-top:14px;padding-top:14px;border-top:1px solid var(--border)">
             ${p.allergies ? `<div style="background:#fee2e2;border-radius:8px;padding:8px 12px;flex:1;min-width:180px">
               <div style="font-size:10px;color:#ef4444;font-weight:700;text-transform:uppercase;margin-bottom:3px">⚠️ Аллергии</div>
-              <div style="font-size:13px;color:var(--text)">${p.allergies}</div>
+              <div style="font-size:13px;color:var(--text)">${UI.esc(p.allergies)}</div>
             </div>` : ''}
             ${p.chronic_diseases ? `<div style="background:#fef3c7;border-radius:8px;padding:8px 12px;flex:1;min-width:180px">
               <div style="font-size:10px;color:#d97706;font-weight:700;text-transform:uppercase;margin-bottom:3px">🩺 Хронические заболевания</div>
-              <div style="font-size:13px;color:var(--text)">${p.chronic_diseases}</div>
+              <div style="font-size:13px;color:var(--text)">${UI.esc(p.chronic_diseases)}</div>
             </div>` : ''}
           </div>` : ''}
       </div>
@@ -257,13 +257,13 @@ Pages.loadPatientDetail = async (el, params) => {
                     </div>
                     ${t.total_cost ? `<div style="font-weight:700;color:var(--c-primary)">${UI.fmtMoney(t.total_cost)}</div>` : ''}
                   </div>
-                  ${t.diagnosis ? `<div style="margin-bottom:6px"><span style="font-size:11px;font-weight:600;color:var(--text-3);text-transform:uppercase">Диагноз:</span><div style="font-size:13px;margin-top:2px">${t.diagnosis}</div></div>` : ''}
-                  ${t.treatment ? `<div style="margin-bottom:6px"><span style="font-size:11px;font-weight:600;color:var(--text-3);text-transform:uppercase">Лечение:</span><div style="font-size:13px;margin-top:2px">${t.treatment}</div></div>` : ''}
-                  ${t.prescription ? `<div><span style="font-size:11px;font-weight:600;color:var(--text-3);text-transform:uppercase">Назначения:</span><div style="font-size:13px;margin-top:2px">${t.prescription}</div></div>` : ''}
+                  ${t.diagnosis ? `<div style="margin-bottom:6px"><span style="font-size:11px;font-weight:600;color:var(--text-3);text-transform:uppercase">Диагноз:</span><div style="font-size:13px;margin-top:2px">${UI.esc(t.diagnosis)}</div></div>` : ''}
+                  ${t.treatment ? `<div style="margin-bottom:6px"><span style="font-size:11px;font-weight:600;color:var(--text-3);text-transform:uppercase">Лечение:</span><div style="font-size:13px;margin-top:2px">${UI.esc(t.treatment)}</div></div>` : ''}
+                  ${t.prescription ? `<div><span style="font-size:11px;font-weight:600;color:var(--text-3);text-transform:uppercase">Назначения:</span><div style="font-size:13px;margin-top:2px">${UI.esc(t.prescription)}</div></div>` : ''}
                   ${t.services?.length ? `
                     <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border)">
                       <div style="font-size:11px;font-weight:600;color:var(--text-3);text-transform:uppercase;margin-bottom:6px">Услуги:</div>
-                      ${t.services.map(s=>`<div style="display:flex;justify-content:space-between;font-size:12px;padding:3px 0"><span>${s.service_name||'—'}</span><span style="color:var(--c-primary);font-weight:600">${UI.fmtMoney(s.price)}</span></div>`).join('')}
+                      ${t.services.map(s=>`<div style="display:flex;justify-content:space-between;font-size:12px;padding:3px 0"><span>${UI.esc(s.service_name)}</span><span style="color:var(--c-primary);font-weight:600">${UI.fmtMoney(s.price)}</span></div>`).join('')}
                     </div>` : ''}
                 </div>`).join('')}
             </div>` : UI.empty('💊','Нет записей о лечении')}

@@ -13,6 +13,7 @@ const servicesCtrl     = require('../controllers/servicesController');
 const financeCtrl      = require('../controllers/financeController');
 const doctorsCtrl      = require('../controllers/doctorsController');
 const inventoryCtrl    = require('../controllers/inventoryController');
+const { notifyNewLead } = require('../utils/notifications');
 
 // ── FILE UPLOAD SETUP ──────────────────────────────────────
 const storage = multer.diskStorage({
@@ -32,6 +33,15 @@ const upload = multer({
     const allowed = /jpeg|jpg|png|gif|pdf|dcm|doc|docx/;
     cb(null, allowed.test(path.extname(file.originalname).toLowerCase()));
   },
+});
+
+// ── UUID PARAMETER VALIDATION ──
+const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+router.param('id', (req, res, next, id) => {
+  if (!uuidRegex.test(id)) {
+    return res.status(400).json({ error: 'Неверный формат параметра id (ожидается UUID)' });
+  }
+  next();
 });
 
 // ── AUTH ROUTES ────────────────────────────────────────────
@@ -173,11 +183,14 @@ router.post('/book', async (req, res) => {
     const lead = await query(
       `INSERT INTO leads
          (name, phone, email, doctor_id, service_id, preferred_dt, comment, status)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, 'new') RETURNING id`,
+       VALUES ($1, $2, $3, $4, $5, $6, $7, 'new') RETURNING *`,
       [name, phone, email || null, docId || null, svcId || null, dt || null, comment || null]
     );
 
     console.log('[BOOK] Lead created:', lead.rows[0].id);
+    // Asynchronously notify via TG
+    notifyNewLead(lead.rows[0]).catch(err => console.error('[BOOK] TG notify error:', err.message));
+
     res.status(201).json({ success: true, lead: lead.rows[0] });
 
   } catch (err) {
@@ -203,13 +216,14 @@ router.post('/book', async (req, res) => {
            CREATE INDEX IF NOT EXISTS idx_leads_status ON leads(status);
          `);
          // Пробуем еще раз
-         const retry = await query(
-           `INSERT INTO leads
-              (name, phone, email, doctor_id, service_id, preferred_dt, comment, status)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, 'new') RETURNING id`,
-           [name, phone, email || null, docId || null, svcId || null, dt || null, comment || null]
-         );
-         return res.status(201).json({ success: true, lead: retry.rows[0] });
+          const retry = await query(
+            `INSERT INTO leads
+               (name, phone, email, doctor_id, service_id, preferred_dt, comment, status)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, 'new') RETURNING *`,
+            [name, phone, email || null, docId || null, svcId || null, dt || null, comment || null]
+          );
+          notifyNewLead(retry.rows[0]).catch(err => console.error('[BOOK] TG retry notify error:', err.message));
+          return res.status(201).json({ success: true, lead: retry.rows[0] });
        } catch (e2) {
          console.error('[BOOK] Auto-create failed:', e2.message);
        }
@@ -323,6 +337,10 @@ router.get('/finance/payments',
   authenticate, requireRole('chief_doctor'),
   financeCtrl.payments);
 
+router.get('/finance/debts',
+  authenticate, requireRole('chief_doctor'),
+  financeCtrl.getDebts);
+
 router.post('/finance/payments',
   authenticate, requireRole('chief_doctor', 'admin'),
   financeCtrl.createPayment);
@@ -421,7 +439,7 @@ router.get('/users',
     try {
       const result = await query(
         `SELECT u.id, u.email, u.first_name, u.last_name, u.phone,
-                u.is_active, u.last_login, u.created_at, u.deleted_at, u.deleted_by,
+                u.is_active, u.status, u.last_login, u.created_at, u.deleted_at, u.deleted_by,
                 r.name AS role, r.label AS role_label
          FROM users u JOIN roles r ON r.id = u.role_id
          ORDER BY r.id, u.last_name`
@@ -437,7 +455,7 @@ router.post('/users',
   authenticate, requireRole('chief_doctor', 'admin'),
   async (req, res) => {
     const bcrypt = require('bcryptjs');
-    const { email, password, first_name, last_name, phone, role_id } = req.body;
+    const { email, password, first_name, last_name, phone, role_id, status } = req.body;
     if (!email || !password || !first_name || !last_name || !role_id) {
       return res.status(400).json({ error: 'Все поля обязательны' });
     }
@@ -445,9 +463,9 @@ router.post('/users',
       await query('BEGIN');
       const hash = await bcrypt.hash(password, 12);
       const result = await query(
-        `INSERT INTO users (email, password_hash, first_name, last_name, phone, role_id)
-         VALUES ($1,$2,$3,$4,$5,$6) RETURNING id, email, first_name, last_name`,
-        [email, hash, first_name, last_name, phone || null, role_id]
+        `INSERT INTO users (email, password_hash, first_name, last_name, phone, role_id, status)
+         VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id, email, first_name, last_name`,
+        [email, hash, first_name, last_name, phone || null, role_id, status || 'active']
       );
       const newUser = result.rows[0];
 
@@ -473,7 +491,7 @@ router.put('/users/:id',
   authenticate, requireRole('chief_doctor', 'admin'),
   async (req, res) => {
     const { id } = req.params;
-    const { email, password, first_name, last_name, phone, role_id } = req.body;
+    const { email, password, first_name, last_name, phone, role_id, status } = req.body;
     if (!email || !first_name || !last_name || !role_id) {
       return res.status(400).json({ error: 'Поля Email, Имя, Фамилия и Роль обязательны' });
     }
@@ -492,17 +510,20 @@ router.put('/users/:id',
           last_name = $3,
           phone = $4,
           role_id = $5,
+          status = $6,
+          is_active = $7,
           updated_at = NOW()
       `;
-      const params = [email, first_name, last_name, phone || null, role_id];
+      const isActive = !['archived', 'terminated', 'suspended'].includes(status);
+      const params = [email, first_name, last_name, phone || null, role_id, status || userRes.rows[0].status, isActive];
 
       if (password && password.trim().length >= 6) {
         const bcrypt = require('bcryptjs');
         const hash = await bcrypt.hash(password, 12);
-        updateQuery += `, password_hash = $6 WHERE id = $7`;
+        updateQuery += `, password_hash = $8 WHERE id = $9`;
         params.push(hash, id);
       } else {
-        updateQuery += ` WHERE id = $6`;
+        updateQuery += ` WHERE id = $8`;
         params.push(id);
       }
 
@@ -521,9 +542,9 @@ router.put('/users/:id',
 
       await query('COMMIT');
       await query(
-        `INSERT INTO activity_log (user_id, action, entity_type, entity_id)
-         VALUES ($1, 'UPDATE_USER', 'user', $2)`,
-        [req.user.id, id]
+        `INSERT INTO activity_log (user_id, action, entity_type, entity_id, new_values)
+         VALUES ($1, 'UPDATE_USER', 'user', $2, $3)`,
+        [req.user.id, id, JSON.stringify({status})]
       ).catch(() => {});
 
       res.json({ success: true, message: 'Данные сотрудника обновлены' });
@@ -535,12 +556,12 @@ router.put('/users/:id',
   }
 );
 
-router.post('/users/:id/deactivate',
+router.post('/users/:id/archive',
   authenticate, requireRole('chief_doctor', 'admin'),
   async (req, res) => {
     const { id } = req.params;
     if (id === req.user.id) {
-      return res.status(400).json({ error: 'Вы не можете деактивировать самого себя' });
+      return res.status(400).json({ error: 'Вы не можете архивировать самого себя' });
     }
     try {
       const user = await query('SELECT id FROM users WHERE id = $1', [id]);
@@ -549,6 +570,7 @@ router.post('/users/:id/deactivate',
       await query(
         `UPDATE users SET
           is_active = FALSE,
+          status = 'archived',
           deleted_at = NOW(),
           deleted_by = $1,
           updated_at = NOW()
@@ -558,13 +580,13 @@ router.post('/users/:id/deactivate',
 
       await query(
         `INSERT INTO activity_log (user_id, action, entity_type, entity_id)
-         VALUES ($1, 'DEACTIVATE_USER', 'user', $2)`,
+         VALUES ($1, 'ARCHIVE_USER', 'user', $2)`,
         [req.user.id, id]
       ).catch(() => {});
 
-      res.json({ success: true, message: 'Сотрудник деактивирован' });
+      res.json({ success: true, message: 'Сотрудник архивирован' });
     } catch (err) {
-      res.status(500).json({ error: 'Ошибка при деактивации сотрудника' });
+      res.status(500).json({ error: 'Ошибка при архивации сотрудника' });
     }
   }
 );
@@ -580,6 +602,7 @@ router.post('/users/:id/restore',
       await query(
         `UPDATE users SET
           is_active = TRUE,
+          status = 'active',
           deleted_at = NULL,
           deleted_by = NULL,
           updated_at = NOW()
@@ -608,22 +631,30 @@ router.delete('/users/:id',
       return res.status(400).json({ error: 'Вы не можете удалить самого себя' });
     }
     try {
-      const user = await query('SELECT id FROM users WHERE id = $1', [id]);
+      const user = await query('SELECT id, role_id FROM users WHERE id = $1', [id]);
       if (!user.rows[0]) return res.status(404).json({ error: 'Сотрудник не найден' });
+
+      // Запрещаем физическое удаление врачей
+      if (parseInt(user.rows[0].role_id) === 2) {
+        return res.status(400).json({ 
+          error: 'Физическое удаление врачей запрещено. Пожалуйста, используйте архивацию.',
+          can_archive: true
+        });
+      }
 
       const { counts, doctorId } = await checkUserRelations(id);
       const total = Object.values(counts).reduce((a, b) => a + b, 0);
 
       if (total > 0) {
         return res.status(400).json({
-          error: 'Невозможно удалить сотрудника.',
-          details: counts
+          error: 'Невозможно удалить сотрудника, так как с ним связаны данные. Используйте архивацию.',
+          details: counts,
+          can_archive: true
         });
       }
 
       await query('BEGIN');
       
-      // Automatic cleanup of audit logs, notifications, and metadata references
       await query('UPDATE activity_log SET user_id = NULL WHERE user_id = $1', [id]);
       await query('DELETE FROM notifications WHERE user_id = $1', [id]);
       await query('UPDATE reminders SET created_by = NULL WHERE created_by = $1', [id]);
@@ -637,13 +668,6 @@ router.delete('/users/:id',
       await query('UPDATE appointments SET created_by = NULL WHERE created_by = $1', [id]);
       await query('UPDATE appointments SET confirmed_by = NULL WHERE confirmed_by = $1', [id]);
 
-      if (doctorId) {
-        await query('DELETE FROM doctor_schedule WHERE doctor_id = $1', [doctorId]);
-        try {
-          await query('DELETE FROM doctor_vacations WHERE doctor_id = $1', [doctorId]);
-        } catch (_) {}
-        await query('DELETE FROM doctors WHERE id = $1', [doctorId]);
-      }
       await query('DELETE FROM users WHERE id = $1', [id]);
       await query('COMMIT');
 

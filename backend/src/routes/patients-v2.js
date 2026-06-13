@@ -12,6 +12,30 @@ const { authenticate, requireRole, authorize } = require('../middleware/auth');
 // Все роуты требуют авторизации
 router.use(authenticate);
 
+// ── UUID PARAMETER VALIDATION (Global Path Traversal & logical check) ──
+const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+router.param('id', (req, res, next, id) => {
+  if (!uuidRegex.test(id)) {
+    return res.status(400).json({ error: 'Неверный формат параметра id (ожидается UUID)' });
+  }
+  next();
+});
+
+router.param('planId', (req, res, next, planId) => {
+  if (!uuidRegex.test(planId)) {
+    return res.status(400).json({ error: 'Неверный формат параметра planId (ожидается UUID)' });
+  }
+  next();
+});
+
+router.param('itemId', (req, res, next, itemId) => {
+  if (!uuidRegex.test(itemId)) {
+    return res.status(400).json({ error: 'Неверный формат параметра itemId (ожидается UUID)' });
+  }
+  next();
+});
+
 // ─────────────────────────────────────────────────────────────
 // СПИСОК ПАЦИЕНТОВ  GET /api/patients
 // ─────────────────────────────────────────────────────────────
@@ -622,8 +646,25 @@ const upload = multer({
   storage,
   limits: { fileSize: (parseInt(process.env.MAX_FILE_SIZE_MB) || 20) * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
-    const allowed = /\.(jpg|jpeg|png|gif|pdf|dcm|doc|docx|xls|xlsx)$/i;
-    cb(null, allowed.test(file.originalname));
+    const allowedExtensions = /\.(jpg|jpeg|png|gif|pdf|dcm|doc|docx|xls|xlsx)$/i;
+    const isExtOk = allowedExtensions.test(file.originalname);
+
+    const blockedExtensions = /\.(exe|js|php|bat|cmd|sh|pl|py|cgi|asp|aspx)$/i;
+    const isExtBlocked = blockedExtensions.test(file.originalname);
+
+    const allowedMimeTypes = [
+      'image/jpeg', 'image/png', 'image/gif', 'application/pdf',
+      'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'application/dicom', 'application/octet-stream'
+    ];
+    const isMimeOk = allowedMimeTypes.includes(file.mimetype) || file.originalname.toLowerCase().endsWith('.dcm');
+
+    if (isExtOk && !isExtBlocked && isMimeOk) {
+      cb(null, true);
+    } else {
+      cb(new Error('Недопустимый формат файла или расширение (опасные типы запрещены)'), false);
+    }
   },
 });
 

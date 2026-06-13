@@ -32,6 +32,13 @@ exports.create = async (req, res) => {
        VALUES ($1, $2, $3, $4, $5) RETURNING *`,
       [name, category, unit, min_quantity || 0, price_per_unit || 0]
     );
+
+    await query(
+      `INSERT INTO activity_log (user_id, action, entity_type, entity_id, new_values)
+       VALUES ($1, 'CREATE_INVENTORY_ITEM', 'inventory', $2, $3)`,
+      [req.user.id, result.rows[0].id, JSON.stringify({name})]
+    ).catch(()=>{});
+
     res.status(201).json(result.rows[0]);
   } catch (err) {
     res.status(500).json({ error: 'Ошибка при создании товара' });
@@ -48,6 +55,13 @@ exports.update = async (req, res) => {
        WHERE id = $6 RETURNING *`,
       [name, category, unit, min_quantity, price_per_unit, id]
     );
+
+    await query(
+      `INSERT INTO activity_log (user_id, action, entity_type, entity_id, new_values)
+       VALUES ($1, 'UPDATE_INVENTORY_ITEM', 'inventory', $2, $3)`,
+      [req.user.id, id, JSON.stringify({name})]
+    ).catch(()=>{});
+
     res.json(result.rows[0]);
   } catch (err) {
     res.status(500).json({ error: 'Ошибка при обновлении товара' });
@@ -62,9 +76,9 @@ exports.transaction = async (req, res) => {
     await query('BEGIN');
 
     // 1. Log transaction
-    await query(
+    const trans = await query(
       `INSERT INTO inventory_transactions (item_id, type, quantity, reason, user_id)
-       VALUES ($1, $2, $3, $4, $5)`,
+       VALUES ($1, $2, $3, $4, $5) RETURNING *`,
       [item_id, type, quantity, reason, userId]
     );
 
@@ -75,8 +89,14 @@ exports.transaction = async (req, res) => {
       [quantity, item_id]
     );
 
+    await query(
+      `INSERT INTO activity_log (user_id, action, entity_type, entity_id, details)
+       VALUES ($1, 'INVENTORY_TRANSACTION', 'inventory', $2, $3)`,
+      [userId, item_id, JSON.stringify({type, quantity, reason})]
+    ).catch(()=>{});
+
     await query('COMMIT');
-    res.json({ success: true });
+    res.json({ success: true, transaction: trans.rows[0] });
   } catch (err) {
     await query('ROLLBACK');
     res.status(500).json({ error: 'Ошибка при выполнении операции' });

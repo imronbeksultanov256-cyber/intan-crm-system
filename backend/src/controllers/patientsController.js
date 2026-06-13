@@ -112,10 +112,12 @@ exports.get = async (req, res) => {
       ),
       query(
         `SELECT tr.*,
-                u.first_name||' '||u.last_name AS doctor_name
+                u.first_name||' '||u.last_name AS doctor_name,
+                vd.paid_amount, vd.balance
          FROM treatment_records tr
          LEFT JOIN doctors d ON d.id = tr.doctor_id
          LEFT JOIN users   u ON u.id = d.user_id
+         LEFT JOIN v_treatment_debts vd ON vd.treatment_record_id = tr.id
          WHERE tr.patient_id = $1
          ORDER BY tr.visit_date DESC`, [id]
       ),
@@ -585,10 +587,19 @@ exports.createTreatmentRecord = async (req, res) => {
       for (const s of services) {
         await query(
           `INSERT INTO treatment_services
-             (treatment_record_id, service_id, service_name, price, quantity)
-           VALUES ($1, $2, $3, $4, $5)`,
-          [tr.id, s.id || null, s.name || s.service_name, s.price || 0, s.quantity || 1]
+             (treatment_record_id, service_id, service_name, price, quantity, tooth_num, notes)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+          [tr.id, s.id || null, s.name || s.service_name, s.price || 0, s.quantity || 1, s.tooth_num || null, s.notes || null]
         );
+
+        // Если указан зуб — добавляем в историю зуба
+        if (s.tooth_num) {
+          await query(
+            `INSERT INTO tooth_history (patient_id, tooth_num, treatment_record_id, doctor_id, procedure_name, notes)
+             VALUES ($1, $2, $3, $4, $5, $6)`,
+            [patient_id, s.tooth_num, tr.id, doctor_id, s.name || s.service_name, s.notes || null]
+          ).catch(()=>{});
+        }
       }
     }
 
