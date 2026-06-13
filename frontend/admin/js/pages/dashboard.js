@@ -67,14 +67,25 @@ Pages.loadDashboard = async (el) => {
                 <span style="font-size: 20px">📝</span>
                 <span style="font-size: 12px">Записать</span>
               </button>
-              <button class="btn-secondary" style="height: 80px; flex-direction: column; gap: 8px" onclick="navigate('finance')">
-                <span style="font-size: 20px">💰</span>
-                <span style="font-size: 12px">Финансы</span>
-              </button>
-              <button class="btn-secondary" style="height: 80px; flex-direction: column; gap: 8px" onclick="navigate('inventory')">
-                <span style="font-size: 20px">📦</span>
-                <span style="font-size: 12px">Склад</span>
-              </button>
+              ${(App.user?.role === 'chief_doctor' || App.user?.role === 'admin') ? `
+                <button class="btn-secondary" style="height: 80px; flex-direction: column; gap: 8px" onclick="navigate('finance')">
+                  <span style="font-size: 20px">💰</span>
+                  <span style="font-size: 12px">Финансы</span>
+                </button>
+                <button class="btn-secondary" style="height: 80px; flex-direction: column; gap: 8px" onclick="navigate('inventory')">
+                  <span style="font-size: 20px">📦</span>
+                  <span style="font-size: 12px">Склад</span>
+                </button>
+              ` : `
+                <button class="btn-secondary" style="height: 80px; flex-direction: column; gap: 8px" onclick="navigate('leads')">
+                  <span style="font-size: 20px">📩</span>
+                  <span style="font-size: 12px">Заявки</span>
+                </button>
+                <button class="btn-secondary" style="height: 80px; flex-direction: column; gap: 8px" onclick="navigate('doctors')">
+                  <span style="font-size: 20px">👨‍⚕️</span>
+                  <span style="font-size: 12px">Врачи</span>
+                </button>
+              `}
             </div>
           </div>
 
@@ -120,25 +131,38 @@ Pages.loadDashboard = async (el) => {
     const s = data.stats;
     const statsGrid = document.getElementById('statsGrid');
     if (statsGrid && s) {
-      statsGrid.innerHTML = `
+      const role = App.user?.role;
+      const isChief = role === 'chief_doctor';
+      const isAdmin = role === 'admin';
+      const isDoc   = role === 'doctor';
+
+      let html = `
         <div class="stat-card stat-card--blue">
           <div class="stat-card__icon">📅</div>
-          <div class="stat-card__label">Записи сегодня</div>
+          <div class="stat-card__label">${isDoc ? 'Мои приёмы' : 'Записи сегодня'}</div>
           <div class="stat-card__value">${s.todayAppointments || 0}</div>
           <div class="stat-card__sub">${s.todayCompleted || 0} завершено</div>
         </div>
         <div class="stat-card stat-card--green">
           <div class="stat-card__icon">👤</div>
-          <div class="stat-card__label">Новые пациенты</div>
+          <div class="stat-card__label">${isDoc ? 'Мои пациенты' : 'Новые пациенты'}</div>
           <div class="stat-card__value">${s.newPatientsToday || 0}</div>
-          <div class="stat-card__sub">регистраций сегодня</div>
+          <div class="stat-card__sub">${isDoc ? 'прикреплено сегодня' : 'регистраций сегодня'}</div>
         </div>
-        <div class="stat-card stat-card--amber">
-          <div class="stat-card__icon">💰</div>
-          <div class="stat-card__label">Выручка сегодня</div>
-          <div class="stat-card__value">${UI.fmtMoney(s.todayRevenue || 0)}</div>
-          <div class="stat-card__sub">подтверждённые оплаты</div>
-        </div>
+      `;
+
+      if (isChief || isAdmin) {
+        html += `
+          <div class="stat-card stat-card--amber">
+            <div class="stat-card__icon">💰</div>
+            <div class="stat-card__label">Выручка сегодня</div>
+            <div class="stat-card__value">${UI.fmtMoney(s.todayRevenue || 0)}</div>
+            <div class="stat-card__sub">подтверждённые оплаты</div>
+          </div>
+        `;
+      }
+
+      html += `
         <div class="stat-card stat-card--purple">
           <div class="stat-card__icon">🔥</div>
           <div class="stat-card__label">Новые заявки</div>
@@ -146,6 +170,7 @@ Pages.loadDashboard = async (el) => {
           <div class="stat-card__sub">ждут обработки</div>
         </div>
       `;
+      statsGrid.innerHTML = html;
     }
 
     // 2. New Leads List

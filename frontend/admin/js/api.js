@@ -82,6 +82,7 @@ const api = {
 
   // ── Dashboard ─────────────────────────────────────────────
   dashboard: () => api.get('/dashboard'),
+  counters:  () => api.get('/counters'),
 
   // ── Patients ──────────────────────────────────────────────
   patients:      (p = '')       => api.get(`/patients${p}`),

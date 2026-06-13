@@ -27,11 +27,17 @@ exports.list = async (req, res) => {
     ? (showDeleted ? '' : 'AND p.is_deleted = FALSE')
     : '';
 
+  // ── ROLE-BASED FILTER ───────────────────────────────────
+  let roleFilter = '';
+  if (req.user?.role === 'doctor' && req.user.doctorId) {
+    roleFilter = ` AND (p.assigned_doctor_id = '${req.user.doctorId}' OR p.id IN (SELECT patient_id FROM appointments WHERE doctor_id = '${req.user.doctorId}'))`;
+  }
+
   try {
     const countRes = await query(
       `SELECT COUNT(*) FROM patients p
        WHERE CONCAT(p.last_name,' ',p.first_name,' ',COALESCE(p.middle_name,''),' ',p.phone)
-             ILIKE $1 ${deletedFilter}`,
+             ILIKE $1 ${deletedFilter} ${roleFilter}`,
       [`%${search}%`]
     );
 
@@ -48,7 +54,7 @@ exports.list = async (req, res) => {
        LEFT JOIN doctors d_doc ON d_doc.id = p.assigned_doctor_id
        LEFT JOIN users u_doc ON u_doc.id = d_doc.user_id
        WHERE CONCAT(p.last_name,' ',p.first_name,' ',COALESCE(p.middle_name,''),' ',p.phone)
-             ILIKE $1 ${deletedFilter}
+             ILIKE $1 ${deletedFilter} ${roleFilter}
        ORDER BY ${sortColumn} ${sortOrder}
        LIMIT $2 OFFSET $3`,
       [`%${search}%`, parseInt(limit), offset]
@@ -74,10 +80,12 @@ exports.get = async (req, res) => {
   try {
     const patient = await query(
       `SELECT p.*,
-              u_doc.last_name || ' ' || u_doc.first_name AS assigned_doctor_name
+              u_doc.last_name || ' ' || u_doc.first_name AS assigned_doctor_name,
+              pdd.total_accrued, pdd.total_paid, pdd.current_debt
        FROM patients p
        LEFT JOIN doctors d_doc ON d_doc.id = p.assigned_doctor_id
        LEFT JOIN users u_doc ON u_doc.id = d_doc.user_id
+       LEFT JOIN v_patient_debt_details pdd ON pdd.patient_id = p.id
        WHERE p.id = $1`, [id]
     );
     if (!patient.rows[0]) return res.status(404).json({ error: 'Пациент не найден' });
@@ -113,7 +121,12 @@ exports.get = async (req, res) => {
       query(
         `SELECT tr.*,
                 u.first_name||' '||u.last_name AS doctor_name,
-                vd.paid_amount, vd.balance
+                vd.paid_amount, vd.balance,
+                CASE 
+                  WHEN COALESCE(vd.paid_amount,0) = 0 THEN 'unpaid'
+                  WHEN COALESCE(vd.balance,0) > 0 THEN 'partial'
+                  ELSE 'paid'
+                END as payment_status
          FROM treatment_records tr
          LEFT JOIN doctors d ON d.id = tr.doctor_id
          LEFT JOIN users   u ON u.id = d.user_id
@@ -226,6 +239,15 @@ exports.create = async (req, res) => {
       [req.user.id, result.rows[0].id, JSON.stringify({name:`${last_name} ${first_name}`,phone})]
     ).catch(()=>{});
 
+    // Если врач назначен сразу — пишем в историю
+    if (assigned_doctor_id) {
+      await query(
+        `INSERT INTO patient_doctor_history (patient_id, doctor_id, changed_by, reason)
+         VALUES ($1, $2, $3, 'Первичное назначение при регистрации')`,
+        [result.rows[0].id, assigned_doctor_id, req.user.id]
+      ).catch(() => {});
+    }
+
     res.status(201).json(result.rows[0]);
   } catch (err) {
     console.error('[patients.create]', err.message, err.detail||'');
@@ -245,6 +267,10 @@ exports.update = async (req, res) => {
   } = req.body;
 
   try {
+    // Получаем текущего врача для истории
+    const currentRes = await query('SELECT assigned_doctor_id FROM patients WHERE id = $1', [id]);
+    const oldDoctorId = currentRes.rows[0]?.assigned_doctor_id;
+
     const result = await query(
       `UPDATE patients SET
          first_name       = COALESCE($1,  first_name),
@@ -267,6 +293,15 @@ exports.update = async (req, res) => {
     );
 
     if (!result.rows[0]) return res.status(404).json({ error: 'Пациент не найден' });
+
+    // История смены врача
+    if (assigned_doctor_id && assigned_doctor_id !== oldDoctorId) {
+      await query(
+        `INSERT INTO patient_doctor_history (patient_id, doctor_id, changed_by, reason)
+         VALUES ($1, $2, $3, 'Смена лечащего врача через профиль')`,
+        [id, assigned_doctor_id, req.user.id]
+      ).catch(() => {});
+    }
 
     await query(
       `INSERT INTO activity_log (user_id, action, entity_type, entity_id)
@@ -562,7 +597,8 @@ exports.permanentDelete = async (req, res) => {
 exports.createTreatmentRecord = async (req, res) => {
   const {
     appointment_id, patient_id, doctor_id,
-    diagnosis, treatment, prescription, services, total_cost
+    diagnosis, treatment, prescription, services, total_cost,
+    next_visit
   } = req.body;
 
   if (!patient_id || !doctor_id) {
@@ -575,10 +611,10 @@ exports.createTreatmentRecord = async (req, res) => {
     // 1. Создаем основную запись
     const trRes = await query(
       `INSERT INTO treatment_records
-         (appointment_id, patient_id, doctor_id, diagnosis, treatment, prescription, total_cost)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
+         (appointment_id, patient_id, doctor_id, diagnosis, treatment, prescription, total_cost, next_visit)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
        RETURNING *`,
-      [appointment_id || null, patient_id, doctor_id, diagnosis, treatment, prescription, total_cost || 0]
+      [appointment_id || null, patient_id, doctor_id, diagnosis, treatment, prescription, total_cost || 0, next_visit || null]
     );
     const tr = trRes.rows[0];
 
@@ -618,6 +654,25 @@ exports.createTreatmentRecord = async (req, res) => {
          VALUES ($1, $2, $3, 'pending', $4)`,
         [tr.id, patient_id, total_cost, req.user.id]
       );
+    }
+
+    // 5. СОЗДАЕМ ПОВТОРНЫЙ ПРИЕМ, если указана дата
+    if (next_visit) {
+      // Проверяем, нет ли уже записи на эту дату для этого пациента (чтобы не дублировать)
+      const existingAppt = await query(
+        `SELECT id FROM appointments 
+         WHERE patient_id = $1 AND appointment_dt::date = $2::date AND status != 'cancelled'`,
+        [patient_id, next_visit]
+      );
+
+      if (existingAppt.rowCount === 0) {
+        await query(
+          `INSERT INTO appointments 
+             (patient_id, doctor_id, appointment_dt, status, source, comment, created_by)
+           VALUES ($1, $2, $3, 'pending', 'admin', 'Повторный приём (назначен автоматически)', $4)`,
+          [patient_id, doctor_id, next_visit, req.user.id]
+        );
+      }
     }
 
     await query('COMMIT');

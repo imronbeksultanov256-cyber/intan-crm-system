@@ -174,8 +174,8 @@ Pages.loadPatientDetail = async (el, params) => {
           <!-- Финансовый итог -->
           <div style="text-align:right;flex-shrink:0">
             <div style="font-size:11px;color:var(--text-3);text-transform:uppercase;margin-bottom:2px">Долг</div>
-            <div style="font-size:1.3rem;font-weight:800;color:${p.finance?.debt > 0 ? 'var(--c-danger)' : 'var(--c-success)'}">${UI.fmtMoney(p.finance?.debt||0)}</div>
-            <div style="font-size:11px;color:var(--text-3)">Оплачено: ${UI.fmtMoney(p.finance?.total_paid||0)}</div>
+            <div style="font-size:1.3rem;font-weight:800;color:${p.current_debt > 0 ? 'var(--c-danger)' : 'var(--c-success)'}">${UI.fmtMoney(p.current_debt||0)}</div>
+            <div style="font-size:11px;color:var(--text-3)">Оплачено: ${UI.fmtMoney(p.total_paid||0)}</div>
           </div>
         </div>
         ${(p.allergies||p.chronic_diseases) ? `
@@ -255,7 +255,11 @@ Pages.loadPatientDetail = async (el, params) => {
                       <div style="font-weight:600;font-size:14px">${UI.fmtDate(t.visit_date)}</div>
                       <div style="font-size:12px;color:var(--text-3)">${t.doctor_name||'—'}</div>
                     </div>
-                    ${t.total_cost ? `<div style="font-weight:700;color:var(--c-primary)">${UI.fmtMoney(t.total_cost)}</div>` : ''}
+                    <div style="text-align:right">
+                      <div style="font-weight:700;color:var(--c-primary)">${UI.fmtMoney(t.total_cost)}</div>
+                      <div style="margin-top:4px">${UI.badge(t.payment_status)}</div>
+                      ${t.balance > 0 ? `<div style="font-size:11px;color:var(--c-danger);margin-top:4px">Долг: ${UI.fmtMoney(t.balance)}</div>` : ''}
+                    </div>
                   </div>
                   ${t.diagnosis ? `<div style="margin-bottom:6px"><span style="font-size:11px;font-weight:600;color:var(--text-3);text-transform:uppercase">Диагноз:</span><div style="font-size:13px;margin-top:2px">${UI.esc(t.diagnosis)}</div></div>` : ''}
                   ${t.treatment ? `<div style="margin-bottom:6px"><span style="font-size:11px;font-weight:600;color:var(--text-3);text-transform:uppercase">Лечение:</span><div style="font-size:13px;margin-top:2px">${UI.esc(t.treatment)}</div></div>` : ''}
@@ -844,7 +848,7 @@ Pages.showCreatePatientModal = () => {
 
 Pages.showEditPatientModal = async (id) => {
   try {
-    const p = await api.patient(id);
+    const [p, doctors] = await Promise.all([api.patient(id), api.doctors()]);
     UI.showModal('Редактировать пациента', `
       <form id="editPatientForm" style="display:flex;flex-direction:column;gap:12px">
         <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
@@ -855,6 +859,12 @@ Pages.showEditPatientModal = async (id) => {
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
           <div class="form-group"><label class="form-label">Телефон *</label><input class="form-input" name="phone" value="${p.phone||''}" required /></div>
           <div class="form-group"><label class="form-label">Дата рождения</label><input class="form-input" name="date_of_birth" type="date" value="${p.date_of_birth?p.date_of_birth.split('T')[0]:''}" /></div>
+          <div class="form-group"><label class="form-label">Лечащий врач</label>
+            <select class="form-select" name="assigned_doctor_id">
+              <option value="">— Не назначен —</option>
+              ${doctors.map(d => `<option value="${d.id}" ${p.assigned_doctor_id === d.id ? 'selected' : ''}>${d.name || d.last_name + ' ' + d.first_name}</option>`).join('')}
+            </select>
+          </div>
         </div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
           <div class="form-group"><label class="form-label">Email</label><input class="form-input" name="email" value="${p.email||''}" /></div>

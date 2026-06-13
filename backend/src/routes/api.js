@@ -355,7 +355,7 @@ router.get('/finance/export/pdf',
 
 // ── INVENTORY / СКЛАД ──────────────────────────────────────
 router.get('/inventory',
-  authenticate, requireRole('chief_doctor', 'admin', 'doctor'),
+  authenticate, requireRole('chief_doctor', 'admin', 'doctor', 'registrar'),
   inventoryCtrl.list);
 
 router.post('/inventory',
@@ -687,9 +687,40 @@ router.delete('/users/:id',
 );
 
 // ── DASHBOARD SUMMARY ─────────────────────────────────────
-router.get('/dashboard', async (req, res) => {
+router.get('/counters', authenticate, async (req, res) => {
   try {
-    const statsResult = await query('SELECT * FROM v_today_stats');
+    const leadsRes = await query("SELECT COUNT(*) FROM leads WHERE status = 'new'");
+    
+    // For appointments, we count 'pending' and 'confirmed' for today and future
+    const apptRes  = await query("SELECT COUNT(*) FROM appointments WHERE status IN ('pending', 'confirmed') AND appointment_dt >= CURRENT_DATE");
+
+    res.json({
+      leads: parseInt(leadsRes.rows[0].count) || 0,
+      pending: parseInt(apptRes.rows[0].count) || 0
+    });
+  } catch (err) {
+    console.error('[counters] error:', err.message);
+    res.json({ leads: 0, pending: 0 }); // Fallback
+  }
+});
+
+router.get('/dashboard', authenticate, async (req, res) => {
+  const { role, doctorId } = req.user;
+  const isDoctor = role === 'doctor' && doctorId;
+
+  try {
+    // Stats filtering
+    let statsQuery = 'SELECT * FROM v_today_stats';
+    if (isDoctor) {
+      statsQuery = `
+        SELECT 
+          (SELECT COUNT(*) FROM appointments WHERE doctor_id = '${doctorId}' AND appointment_dt::date = CURRENT_DATE) AS today_appointments,
+          (SELECT COUNT(*) FROM appointments WHERE doctor_id = '${doctorId}' AND appointment_dt::date = CURRENT_DATE AND status = 'completed') AS today_completed,
+          0 AS today_revenue,
+          (SELECT COUNT(*) FROM patients p WHERE p.assigned_doctor_id = '${doctorId}' AND p.created_at::date = CURRENT_DATE) AS new_patients_today
+      `;
+    }
+    const statsResult = await query(statsQuery);
     const stats = statsResult.rows[0] || {
       today_appointments: 0,
       today_completed:    0,
@@ -704,6 +735,7 @@ router.get('/dashboard', async (req, res) => {
       FROM appointments a
       WHERE a.appointment_dt >= DATE_TRUNC('week', CURRENT_DATE)
         AND a.appointment_dt <  DATE_TRUNC('week', CURRENT_DATE) + INTERVAL '1 week'
+        ${isDoctor ? ` AND a.doctor_id = '${doctorId}'` : ''}
       GROUP BY DATE_TRUNC('day', a.appointment_dt)
       ORDER BY 1
     `);
@@ -722,6 +754,7 @@ router.get('/dashboard', async (req, res) => {
       LEFT JOIN users    u ON u.id = d.user_id
       WHERE a.appointment_dt >= NOW()
         AND a.status IN ('pending', 'confirmed')
+        ${isDoctor ? ` AND a.doctor_id = '${doctorId}'` : ''}
       ORDER BY a.appointment_dt
       LIMIT 10
     `);

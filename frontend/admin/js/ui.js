@@ -53,6 +53,11 @@ const UI = {
       chief_doctor:'Главный врач',
       doctor:      'Врач',
       admin:       'Администратор',
+      registrar:   'Регистратура',
+      paid:        'Оплачено',
+      partial:     'Частично',
+      unpaid:      'Не оплачено',
+      refunded:    'Возврат',
     };
     return `<span class="badge badge--${status}">${labels[status] || status}</span>`;
   },

@@ -35,7 +35,31 @@ const App = {
     if (appEl)      { appEl.hidden = false;       appEl.style.display = 'flex'; }
     App.applyRole();
     App.updateSidebar();
+    App.loadGlobalCounters(); // <-- Загружаем счетчики
     if (typeof window.navigate === 'function') window.navigate('dashboard');
+
+    // Автообновление каждые 60 секунд
+    if (window._counterTimer) clearInterval(window._counterTimer);
+    window._counterTimer = setInterval(() => App.loadGlobalCounters(), 60000);
+  },
+
+  async loadGlobalCounters() {
+    try {
+      const data = await api.counters();
+      const lBadge = document.getElementById('leadsBadge');
+      const pBadge = document.getElementById('pendingBadge');
+
+      if (lBadge) {
+        lBadge.textContent = data.leads || 0;
+        lBadge.style.display = data.leads > 0 ? 'flex' : 'none';
+      }
+      if (pBadge) {
+        pBadge.textContent = data.pending || 0;
+        pBadge.style.display = data.pending > 0 ? 'flex' : 'none';
+      }
+    } catch (err) {
+      console.warn('[Counters] Failed to load:', err.message);
+    }
   },
 
   applyRole() {

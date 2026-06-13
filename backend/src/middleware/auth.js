@@ -30,6 +30,13 @@ const PERMISSIONS = {
     'doctors:read',
     'files:read',
   ],
+  registrar: [
+    'patients:read', 'patients:write',
+    'appointments:read', 'appointments:write',
+    'leads:read', 'leads:write',
+    'services:read',
+    'doctors:read',
+  ],
 };
 
 const { query } = require('../utils/db');

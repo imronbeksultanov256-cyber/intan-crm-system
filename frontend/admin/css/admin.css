@@ -596,6 +596,12 @@ body {
 .badge--chief_doctor { background: #ede9fe; color: #5b21b6; }
 .badge--doctor     { background: #d1fae5; color: #065f46; }
 .badge--admin      { background: #dbeafe; color: #1e40af; }
+.badge--registrar  { background: #fef3c7; color: #92400e; }
+
+.badge--paid      { background: #d1fae5; color: #065f46; }
+.badge--partial   { background: #ede9fe; color: #5b21b6; }
+.badge--unpaid    { background: #fee2e2; color: #991b1b; }
+.badge--refunded  { background: #f3f4f6; color: #6b7280; }
 
 /* ── SEARCH / FILTERS ────────────────────────────────────── */
 .toolbar {
