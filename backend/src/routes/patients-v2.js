@@ -52,11 +52,22 @@ router.get('/', authorize('patients:read'), async (req, res) => {
     const offset = (parseInt(page) - 1) * parseInt(limit);
     const showDeleted = includeDeleted === 'true';
 
+    const role = req.user.role;
+    const isChief = role === 'chief_doctor';
+    const isAdmin = role === 'admin';
+    const isRegistrar = role === 'registrar';
+    const isDoctor = role === 'doctor';
+
     // Только chief_doctor видит удалённых
-    const isChief = req.user.role === 'chief_doctor';
     const deletedFilter = showDeleted && isChief
       ? 'TRUE'
       : 'p.is_deleted = FALSE';
+
+    // Врачи видят только СВОИХ (прикрепленных или у кого был прием)
+    let roleFilter = 'TRUE';
+    if (isDoctor && req.user.doctorId) {
+      roleFilter = `(p.assigned_doctor_id = '${req.user.doctorId}' OR p.id IN (SELECT patient_id FROM appointments WHERE doctor_id = '${req.user.doctorId}'))`;
+    }
 
     const allowedSort = ['created_at', 'last_name', 'first_name'];
     const sort = allowedSort.includes(sortBy) ? sortBy : 'created_at';
@@ -65,7 +76,7 @@ router.get('/', authorize('patients:read'), async (req, res) => {
 
     const countRes = await query(
       `SELECT COUNT(*) FROM patients p
-       WHERE ${deletedFilter}
+       WHERE ${deletedFilter} AND ${roleFilter}
        AND (p.last_name ILIKE $1 OR p.first_name ILIKE $1 OR p.phone ILIKE $1
             OR p.middle_name ILIKE $1)`,
       [searchParam]
@@ -79,9 +90,9 @@ router.get('/', authorize('patients:read'), async (req, res) => {
          (SELECT MAX(a.appointment_dt) FROM appointments a
           WHERE a.patient_id = p.id AND a.status = 'completed') AS last_visit
        FROM patients p
-       LEFT JOIN doctors d ON d.id = p.doctor_id
+       LEFT JOIN doctors d ON d.id = p.assigned_doctor_id
        LEFT JOIN users ud ON ud.id = d.user_id
-       WHERE ${deletedFilter}
+       WHERE ${deletedFilter} AND ${roleFilter}
        AND (p.last_name ILIKE $1 OR p.first_name ILIKE $1 OR p.phone ILIKE $1
             OR p.middle_name ILIKE $1)
        ORDER BY p.${sort} DESC
@@ -109,7 +120,7 @@ router.post('/', authorize('patients:write'), async (req, res) => {
     const {
       first_name, last_name, middle_name,
       date_of_birth, phone, email, address,
-      gender, allergies, chronic_diseases, notes, doctor_id
+      gender, allergies, chronic_diseases, notes, assigned_doctor_id
     } = req.body;
 
     if (!first_name || !last_name || !phone) {
@@ -119,17 +130,28 @@ router.post('/', authorize('patients:write'), async (req, res) => {
     const r = await query(
       `INSERT INTO patients
          (first_name, last_name, middle_name, date_of_birth, phone, email,
-          address, gender, allergies, chronic_diseases, notes, created_by, doctor_id)
+          address, gender, allergies, chronic_diseases, notes, created_by, assigned_doctor_id)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
        RETURNING *`,
       [first_name, last_name, middle_name || null,
        date_of_birth || null, phone, email || null,
        address || null, gender || null,
        allergies || null, chronic_diseases || null,
-       notes || null, req.user.id, doctor_id || null]
+       notes || null, req.user.id, assigned_doctor_id || null]
     );
 
-    res.status(201).json(r.rows[0]);
+    const newPatient = r.rows[0];
+
+    // Логируем назначение врача
+    if (assigned_doctor_id) {
+      await query(
+        `INSERT INTO patient_doctor_history (patient_id, doctor_id, changed_by, reason)
+         VALUES ($1, $2, $3, 'Первичное назначение при регистрации (v2)')`,
+        [newPatient.id, assigned_doctor_id, req.user.id]
+      ).catch(()=>{});
+    }
+
+    res.status(201).json(newPatient);
   } catch (e) {
     console.error('[patients] POST /', e);
     res.status(500).json({ error: e.message });
@@ -149,10 +171,11 @@ router.get('/:id', authorize('patients:read'), async (req, res) => {
          CONCAT(ud.last_name, ' ', ud.first_name) AS assigned_doctor_name,
          json_build_object(
            'total_paid',    COALESCE((SELECT SUM(amount) FROM payments WHERE patient_id = p.id AND status='paid'), 0),
-           'payment_count', COALESCE((SELECT COUNT(*) FROM payments WHERE patient_id = p.id AND status='paid'), 0)
+           'payment_count', COALESCE((SELECT COUNT(*) FROM payments WHERE patient_id = p.id AND status='paid'), 0),
+           'current_debt',  COALESCE((SELECT current_debt FROM v_patient_debt_details WHERE patient_id = p.id), 0)
          ) AS finance
        FROM patients p
-       LEFT JOIN doctors d ON d.id = p.doctor_id
+       LEFT JOIN doctors d ON d.id = p.assigned_doctor_id
        LEFT JOIN users ud ON ud.id = d.user_id
        WHERE p.id = $1`,
       [id]
@@ -160,6 +183,13 @@ router.get('/:id', authorize('patients:read'), async (req, res) => {
     if (!pRes.rows.length) return res.status(404).json({ error: 'Пациент не найден' });
 
     const p = pRes.rows[0];
+    
+    // Врач видит только СВОИХ (доп. проверка на уровне карточки)
+    if (req.user.role === 'doctor' && req.user.doctorId) {
+        const hasAccess = p.assigned_doctor_id === req.user.doctorId || 
+            (await query('SELECT 1 FROM appointments WHERE patient_id = $1 AND doctor_id = $2 LIMIT 1', [id, req.user.doctorId])).rowCount > 0;
+        if (!hasAccess) return res.status(403).json({ error: 'Доступ запрещён к этому пациенту' });
+    }
 
     // Визиты
     const appts = await query(
@@ -266,8 +296,12 @@ router.put('/:id', authorize('patients:write'), async (req, res) => {
     const {
       first_name, last_name, middle_name,
       date_of_birth, phone, email, address,
-      gender, allergies, chronic_diseases, notes, doctor_id
+      gender, allergies, chronic_diseases, notes, assigned_doctor_id
     } = req.body;
+
+    // История для смены врача
+    const current = await query('SELECT assigned_doctor_id FROM patients WHERE id = $1', [id]);
+    const oldDoctorId = current.rows[0]?.assigned_doctor_id;
 
     const r = await query(
       `UPDATE patients SET
@@ -282,7 +316,7 @@ router.put('/:id', authorize('patients:write'), async (req, res) => {
          allergies        = $9,
          chronic_diseases = $10,
          notes            = $11,
-         doctor_id        = $12,
+         assigned_doctor_id = COALESCE($12, assigned_doctor_id),
          updated_at       = NOW()
        WHERE id = $13 AND is_deleted = FALSE
        RETURNING *`,
@@ -290,10 +324,20 @@ router.put('/:id', authorize('patients:write'), async (req, res) => {
        date_of_birth || null, phone, email || null,
        address || null, gender || null,
        allergies || null, chronic_diseases || null,
-       notes || null, doctor_id || null, id]
+       notes || null, assigned_doctor_id || null, id]
     );
 
     if (!r.rows.length) return res.status(404).json({ error: 'Пациент не найден' });
+    
+    // Пишем в историю, если врач изменился
+    if (assigned_doctor_id && assigned_doctor_id !== oldDoctorId) {
+        await query(
+            `INSERT INTO patient_doctor_history (patient_id, doctor_id, changed_by, reason)
+             VALUES ($1, $2, $3, 'Смена врача (v2)')`,
+            [id, assigned_doctor_id, req.user.id]
+        ).catch(()=>{});
+    }
+
     res.json(r.rows[0]);
   } catch (e) {
     res.status(500).json({ error: e.message });

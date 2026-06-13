@@ -101,9 +101,11 @@ if (process.env.NODE_ENV === 'production') {
   const BACKEND_URL = process.env.RENDER_EXTERNAL_URL || 'https://intan-backend.onrender.com';
   setInterval(async () => {
     try {
-      const fetchFn = global.fetch || require('node-fetch');
-      await fetchFn(`${BACKEND_URL}/health`);
-      console.log('[KeepAlive] ping OK');
+      const fetchFn = global.fetch;
+      if (fetchFn) {
+        await fetchFn(`${BACKEND_URL}/health`);
+        console.log('[KeepAlive] ping OK');
+      }
     } catch (e) {
       console.warn('[KeepAlive] ping failed:', e.message);
     }
